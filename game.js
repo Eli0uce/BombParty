@@ -3,14 +3,16 @@
 ════════════════════════════════════════════════════════ */
 
 // ─── CONFIG ──────────────────────────────────────────────
-const DIFFICULTY = {
-  easy:    { time: 12, label: 'Facile' },
-  normal:  { time:  8, label: 'Normal' },
-  hard:    { time:  5, label: 'Difficile' },
-  extreme: { time:  3, label: 'Extrême' },
-};
-const AVATARS = ['🐱','🐶','🦊','🐻','🐼','🦁','🐯','🐸','🐧','🦄','🤖','👻','💀','🎃','🦖','🐉'];
+// Timer aléatoire par tour : entre TIMER_MIN et TIMER_MAX secondes
+const TIMER_MIN  = 5;
+const TIMER_MAX  = 15;
+const AVATARS    = ['🐱','🐶','🦊','🐻','🐼','🦁','🐯','🐸','🐧','🦄','🤖','👻','💀','🎃','🦖','🐉'];
 const RANK_EMOJIS = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣'];
+const ALPHABET   = 'abcdefghijklmnopqrstuvwxyz';
+
+function pickRandomTime() {
+  return Math.floor(Math.random() * (TIMER_MAX - TIMER_MIN + 1)) + TIMER_MIN;
+}
 
 // ─── STATE ───────────────────────────────────────────────
 let me = {
@@ -29,11 +31,12 @@ let session = {
 let state = {
   players: [],
   maxLives: 3,
-  difficulty: 'normal',
   currentPlayerIndex: 0,
   currentSyllable: '',
   usedWords: new Set(),
+  playerLetters: {},    // playerId → Set des lettres utilisées ce cycle
   timerInterval: null,
+  clientTimerInterval: null, // timer local côté client (non-hôte)
   timeLeft: 8,
   totalTime: 8,
   phase: 'setup',
@@ -52,7 +55,6 @@ const avatarGrid            = $('avatar-grid');
 const firebaseWarning       = $('firebase-warning');
 
 // Create
-const createDifficulty = $('create-difficulty');
 const createLives      = $('create-lives');
 const createPublic     = $('create-public');
 const btnDoCreate      = $('btn-do-create');
@@ -71,7 +73,6 @@ const btnRefreshRooms  = $('btn-refresh-rooms');
 const localPlayersList    = $('local-players-list');
 const localPlayerCount    = $('local-player-count-label');
 const btnLocalAddPlayer   = $('btn-local-add-player');
-const localDifficulty     = $('local-difficulty');
 const localLives          = $('local-lives');
 const btnLocalStart       = $('btn-local-start');
 
@@ -268,7 +269,6 @@ async function handleCreate() {
   showLoading('Création de la partie…');
   try {
     const settings = {
-      difficulty: createDifficulty.value,
       maxLives: parseInt(createLives.value),
       isPublic: createPublic.checked,
     };
@@ -330,13 +330,12 @@ async function loadPublicRooms() {
     }
     publicRoomsList.innerHTML = '';
     rooms.forEach(r => {
-      const diff = DIFFICULTY[r.difficulty]?.label || r.difficulty;
       const row = document.createElement('div');
       row.className = 'room-row';
       row.innerHTML = `
         <div class="room-row-info">
           <div class="room-row-host">👑 ${escapeHtml(r.hostName)}</div>
-          <div class="room-row-meta">${diff} · ❤️×${r.maxLives} · Code : <strong>${escapeHtml(r.code)}</strong></div>
+          <div class="room-row-meta">❤️×${r.maxLives} · Code : <strong>${escapeHtml(r.code)}</strong></div>
         </div>
         <div class="room-row-players">${r.playerCount}/8</div>
         <div class="room-row-join">
@@ -372,11 +371,9 @@ async function loadPublicRooms() {
 // ════════════════════════════════════════════════════════
 function setupLobby(code, meta) {
   lobbyRoomCode.textContent = code;
-
-  const diff = DIFFICULTY[meta.difficulty]?.label || meta.difficulty;
   lobbySettingsDisplay.innerHTML = `
-    <div class="lobby-settings-row"><span>Difficulté</span><span class="lobby-settings-val">${diff}</span></div>
     <div class="lobby-settings-row"><span>Vies</span><span class="lobby-settings-val">${meta.maxLives} ❤️</span></div>
+    <div class="lobby-settings-row"><span>Timer</span><span class="lobby-settings-val">⏱ ${TIMER_MIN}–${TIMER_MAX}s (aléatoire)</span></div>
     <div class="lobby-settings-row"><span>Visibilité</span><span class="lobby-settings-val">${meta.isPublic ? '🌍 Publique' : '🔒 Privée'}</span></div>
   `;
 
@@ -416,12 +413,12 @@ function startLobbyListeners(code) {
         lives: room.meta.maxLives,
         alive: true,
       }));
-      state.players    = players;
-      state.maxLives   = room.meta.maxLives;
-      state.difficulty = room.meta.difficulty;
-      state.totalTime  = DIFFICULTY[room.meta.difficulty].time;
-      state.usedWords  = new Set();
-      state.phase      = 'playing';
+      state.players       = players;
+      state.maxLives      = room.meta.maxLives;
+      state.usedWords     = new Set();
+      state.playerLetters = {};
+      state.phase         = 'playing';
+      // totalTime est tiré aléatoirement par hostNextTurn à chaque tour
 
       session.unsubscribers.push(unsubPlayers, unsubChat, unsubRoom);
 
@@ -555,51 +552,72 @@ function startOnlineGame(code) {
 function applyRemoteGameState(gs) {
   if (!gs) return;
 
+  const prevPlayerIndex = state.currentPlayerIndex;
+  const prevPhase       = state.phase;
+
   state.currentPlayerIndex = gs.currentPlayerIndex;
   state.currentSyllable    = gs.currentSyllable;
   state.usedWords          = new Set(Object.keys(gs.usedWords || {}));
   state.timeLeft           = gs.timeLeft;
+  state.totalTime          = gs.totalTime || state.totalTime;
   state.phase              = gs.phase;
 
-  // Mise à jour des vies depuis les joueurs Firebase
-  if (session.roomCode) {
-    ref(`rooms/${session.roomCode}/players`).get().then(snap => {
-      if (!snap.exists()) return;
-      const fbPlayers = snap.val();
-      state.players.forEach(p => {
-        if (fbPlayers[p.id]) {
-          p.lives = fbPlayers[p.id].lives ?? p.lives;
-          p.alive = fbPlayers[p.id].alive ?? p.alive;
-        }
-      });
-      refreshPlayersUI();
+  // ── Vies directement depuis gameState (plus de lecture Firebase séparée) ──
+  if (gs.playerLives) {
+    state.players.forEach(p => {
+      const d = gs.playerLives[p.id];
+      if (d) { p.lives = d.lives ?? p.lives; p.alive = d.alive ?? p.alive; }
     });
   }
 
-  // Syllabe
-  if (gs.currentSyllable) {
-    currentSyllableEl.textContent = gs.currentSyllable.toUpperCase();
-    currentSyllableEl.classList.remove('new-syllable');
-    void currentSyllableEl.offsetWidth;
-    currentSyllableEl.classList.add('new-syllable');
+  // ── Progression alphabet pour affichage ──────────────────────────────────
+  if (gs.playerLetterCounts || gs.playerLetterStrs) {
+    state.players.forEach(p => {
+      p._letterCount = (gs.playerLetterCounts || {})[p.id] || 0;
+      p._usedLetters = (gs.playerLetterStrs   || {})[p.id] || '';
+    });
   }
 
-  // Timer (affichage seulement — le host gère)
+  if (gs.phase === 'gameover') {
+    clearInterval(state.clientTimerInterval);
+    endGame();
+    return;
+  }
+
+  // ── Nouveau tour détecté → démarrer le timer local client ────────────────
+  const isNewTurn = prevPhase !== 'playing' || prevPlayerIndex !== gs.currentPlayerIndex;
+  if (gs.phase === 'playing') {
+    if (isNewTurn) {
+      clearInterval(state.clientTimerInterval);
+      state.clientTimerInterval = setInterval(() => {
+        state.timeLeft = Math.max(0, state.timeLeft - 1);
+        updateTimerDisplay();
+      }, 1000);
+
+      currentSyllableEl.textContent = gs.currentSyllable.toUpperCase();
+      currentSyllableEl.classList.remove('new-syllable');
+      void currentSyllableEl.offsetWidth;
+      currentSyllableEl.classList.add('new-syllable');
+      bombEl.classList.remove('ticking-fast');
+      bombTimerEl.className = 'bomb-timer';
+      wordInput.value = '';
+      feedbackMsg.textContent = '';
+      feedbackMsg.className   = 'feedback-msg';
+      inputWrapper.classList.remove('error', 'success');
+      explosionEl.classList.add('hidden');
+    }
+  }
+
   updateTimerDisplay();
 
-  // Joueur actif
   const cp = state.players[state.currentPlayerIndex];
   if (cp) {
     activePlayerName.textContent = `${cp.avatar} ${cp.name}`;
     const isMyTurn = cp.id === me.id;
     myTurnBadge.classList.toggle('hidden', !isMyTurn);
-    wordInput.disabled = !isMyTurn;
+    wordInput.disabled   = !isMyTurn;
     btnValidate.disabled = !isMyTurn;
-    if (isMyTurn) wordInput.focus();
-  }
-
-  if (gs.phase === 'gameover') {
-    endGame();
+    if (isMyTurn && isNewTurn) wordInput.focus();
   }
 
   refreshPlayersUI();
@@ -620,22 +638,20 @@ function hostNextTurn() {
   } while (!state.players[state.currentPlayerIndex].alive);
 
   state.currentSyllable = pickSyllable();
+  state.totalTime       = pickRandomTime();   // ← timer aléatoire
   state.timeLeft        = state.totalTime;
   state.phase           = 'playing';
 
-  syncStateToFirebase();
+  syncStateToFirebase();   // une seule écriture Firebase au début du tour
   applyLocalGameState();
 
   state.timerInterval = setInterval(() => {
     state.timeLeft -= 1;
     updateTimerDisplay();
-    syncTimerToFirebase();
     if (state.timeLeft <= 0) hostBombExplode();
   }, 1000);
 
-  if (session.mode === 'local') {
-    wordInput.focus();
-  }
+  if (session.mode === 'local') wordInput.focus();
 }
 
 function applyLocalGameState() {
@@ -667,16 +683,12 @@ function applyLocalGameState() {
 
 function syncStateToFirebase() {
   if (session.mode !== 'online' || !session.isHost) return;
+  // playerLives et playerLetterCounts sont inclus dans pushGameState
   pushGameState(session.roomCode, state).catch(() => {});
-  // Sync vies des joueurs
-  state.players.forEach(p => {
-    updatePlayerState(session.roomCode, p.id, { lives: p.lives, alive: p.alive });
-  });
 }
 
 function syncTimerToFirebase() {
-  if (session.mode !== 'online' || !session.isHost) return;
-  ref(`rooms/${session.roomCode}/gameState/timeLeft`).set(state.timeLeft).catch(() => {});
+  // Gardé pour compatibilité mais non appelé — le timer est géré localement
 }
 
 function hostBombExplode() {
@@ -811,15 +823,44 @@ async function processWord(raw) {
   }
 
   // ✅ Valide
+  const cp = state.players[state.currentPlayerIndex];
   state.usedWords.add(word);
   clearInterval(state.timerInterval);
-  showSuccess(`✅ "${raw}"`);
   wordInput.value = '';
 
-  if (session.mode === 'online') {
-    sendChatMessage(session.roomCode, '🎮 Système', '💬', `✅ ${state.players[state.currentPlayerIndex]?.name} : "${raw}"`).catch(() => {});
+  // ── Suivi alphabet ────────────────────────────────────
+  if (!state.playerLetters[cp.id]) state.playerLetters[cp.id] = new Set();
+  for (const ch of word) {
+    if (ch >= 'a' && ch <= 'z') state.playerLetters[cp.id].add(ch);
+  }
+  const letCount = state.playerLetters[cp.id].size;
+
+  // ── Bonus A→Z : toutes les 26 lettres → +1 vie ───────
+  if (letCount >= 26) {
+    state.playerLetters[cp.id] = new Set(); // réinitialise le cycle
+    if (cp.lives < state.maxLives) {
+      cp.lives = Math.min(cp.lives + 1, state.maxLives);
+      showSuccess(`✅ "${raw}" 🎉 A→Z complet ! +1 vie pour ${cp.name} !`);
+      showAlphabetBonus(cp);
+      if (session.mode === 'online') {
+        sendChatMessage(session.roomCode, '🎮 Système', '🔤',
+          `🎉 ${cp.name} a utilisé les 26 lettres et gagne une vie !`).catch(() => {});
+      }
+    } else {
+      showSuccess(`✅ "${raw}" 🔤 A→Z complet ! (vies au maximum)`);
+      showAlphabetBonus(cp);
+    }
+    syncStateToFirebase(); // sync immédiate pour que les clients voient le bonus
+  } else {
+    showSuccess(`✅ "${raw}" · 🔤 ${letCount}/26`);
   }
 
+  if (session.mode === 'online') {
+    sendChatMessage(session.roomCode, '🎮 Système', '💬',
+      `✅ ${cp.name} : "${raw}"`).catch(() => {});
+  }
+
+  refreshPlayersUI();
   setTimeout(() => { hostNextTurn(); }, 600);
 }
 
@@ -840,6 +881,27 @@ function showSuccess(msg) {
 function showFeedback(msg, type) {
   feedbackMsg.textContent = msg;
   feedbackMsg.className = `feedback-msg ${type}`;
+}
+
+// ─── BONUS ALPHABET ──────────────────────────────────────
+function showAlphabetBonus(player) {
+  // Cherche toutes les cartes de ce joueur et joue l'animation
+  document.querySelectorAll(`[data-player-id="${player.id}"]`).forEach(card => {
+    card.classList.remove('alphabet-bonus');
+    void card.offsetWidth;
+    card.classList.add('alphabet-bonus');
+    setTimeout(() => card.classList.remove('alphabet-bonus'), 1500);
+  });
+  // Confetti léger
+  const colors = ['#ffcc00','#39ff14','#00d4ff','#ff073a'];
+  for (let i = 0; i < 20; i++) {
+    const p = document.createElement('div');
+    p.className = 'confetti-piece';
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    p.style.cssText = `left:${20+Math.random()*60}%;background:${color};width:8px;height:8px;animation-duration:1.5s;animation-delay:${Math.random()*0.3}s;border-radius:50%;`;
+    confettiContainer.appendChild(p);
+    setTimeout(() => p.remove(), 2000);
+  }
 }
 
 // ─── TIMER DISPLAY ───────────────────────────────────────
@@ -894,6 +956,12 @@ function createPlayerCard(player) {
     `<span class="heart ${i >= player.lives ? 'lost' : ''}">❤️</span>`
   ).join('');
 
+  // Progression alphabet
+  const letCount = session.isHost
+    ? (state.playerLetters[player.id]?.size || 0)
+    : (player._letterCount || 0);
+  const letPct = Math.round((letCount / 26) * 100);
+
   card.innerHTML = `
     <div class="player-card-header">
       <span class="player-card-avatar">${escapeHtml(player.avatar)}</span>
@@ -901,6 +969,10 @@ function createPlayerCard(player) {
       ${isMe ? '<span class="player-card-you">VOUS</span>' : ''}
     </div>
     <div class="player-lives">${hearts}</div>
+    <div class="alphabet-track" title="${letCount}/26 lettres utilisées">
+      <div class="alphabet-track-fill" style="width:${letPct}%"></div>
+      <span class="alphabet-track-label">🔤 ${letCount}/26</span>
+    </div>
   `;
   return card;
 }
@@ -930,6 +1002,18 @@ function refreshPlayersUI() {
       heartsEl.innerHTML = Array.from({ length: state.maxLives }, (_, i) =>
         `<span class="heart ${i >= p.lives ? 'lost' : ''}">❤️</span>`
       ).join('');
+    }
+
+    // Progression alphabet
+    const trackFill  = card.querySelector('.alphabet-track-fill');
+    const trackLabel = card.querySelector('.alphabet-track-label');
+    if (trackFill && trackLabel) {
+      const letCount = session.isHost
+        ? (state.playerLetters[p.id]?.size || 0)
+        : (p._letterCount || 0);
+      const letPct = Math.round((letCount / 26) * 100);
+      trackFill.style.width = letPct + '%';
+      trackLabel.textContent = `🔤 ${letCount}/26`;
     }
   });
 }
@@ -981,16 +1065,16 @@ function startLocalGame() {
     lives: parseInt(localLives.value),
     alive: true,
   }));
-  state.maxLives      = parseInt(localLives.value);
-  state.difficulty    = localDifficulty.value;
-  state.totalTime     = DIFFICULTY[localDifficulty.value].time;
-  state.timeLeft      = state.totalTime;
-  state.usedWords     = new Set();
+  state.maxLives           = parseInt(localLives.value);
+  state.totalTime          = pickRandomTime(); // sera redéfini à chaque tour
+  state.timeLeft           = state.totalTime;
+  state.usedWords          = new Set();
+  state.playerLetters      = {};
   state.currentPlayerIndex = -1;
-  state.phase         = 'playing';
+  state.phase              = 'playing';
 
-  session.mode    = 'local';
-  session.isHost  = true;
+  session.mode     = 'local';
+  session.isHost   = true;
   session.roomCode = null;
 
   gameRoomCodeBadge.classList.add('hidden');
@@ -1007,6 +1091,7 @@ function startLocalGame() {
 // ════════════════════════════════════════════════════════
 function endGame() {
   clearInterval(state.timerInterval);
+  clearInterval(state.clientTimerInterval);
   state.phase = 'gameover';
 
   if (session.mode === 'online' && session.isHost) {
@@ -1066,8 +1151,9 @@ async function handlePlayAgain() {
     // Local : relancer directement
     state.players.forEach(p => { p.lives = state.maxLives; p.alive = true; });
     state.currentPlayerIndex = -1;
-    state.usedWords = new Set();
-    state.phase = 'playing';
+    state.usedWords     = new Set();
+    state.playerLetters = {};
+    state.phase         = 'playing';
     buildPlayersUI();
     showScreen('game');
     hostNextTurn();
@@ -1083,6 +1169,7 @@ async function handleQuitGame() {
 
 function cleanupSession() {
   clearInterval(state.timerInterval);
+  clearInterval(state.clientTimerInterval);
   stopAllListeners();
   session.unsubscribers.forEach(fn => { try { fn(); } catch (_) {} });
   session.unsubscribers = [];

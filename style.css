@@ -509,6 +509,44 @@ select option { background: #1a1a2e; }
 .feedback-msg.checking { color: var(--accent2, #f0c040); animation: pulse-opacity 0.8s ease-in-out infinite; }
 @keyframes pulse-opacity { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
 
+/* ─── Barre progression alphabet ─── */
+.alphabet-track {
+  position: relative;
+  height: 14px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 8px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+.alphabet-track-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #39ff14, #00d4ff);
+  border-radius: 8px;
+  transition: width 0.4s ease;
+}
+.alphabet-track-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 0 4px rgba(0,0,0,0.8);
+  pointer-events: none;
+}
+
+/* ─── Animation bonus A→Z ─── */
+@keyframes alphabet-bonus-glow {
+  0%   { box-shadow: 0 0 0px #ffcc00; transform: scale(1); }
+  40%  { box-shadow: 0 0 24px #ffcc00, 0 0 48px #39ff14; transform: scale(1.06); }
+  100% { box-shadow: 0 0 0px #ffcc00; transform: scale(1); }
+}
+.player-card.alphabet-bonus {
+  animation: alphabet-bonus-glow 1.5s ease-out forwards;
+}
+
 /* Chat overlay */
 .chat-overlay {
   position: fixed; right: 16px; bottom: 16px; width: 300px; height: 380px;

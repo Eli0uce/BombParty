@@ -113,38 +113,59 @@ async function leaveRoom(code, playerId, isHost) {
 }
 
 async function listPublicRooms() {
-  const snap = await ref('rooms').orderByChild('meta/isPublic').equalTo(true).limitToLast(20).get();
+  // On récupère toutes les rooms et on filtre côté client
+  // (orderByChild sur chemin imbriqué nécessite un index Firebase)
+  const snap = await ref('rooms').get();
   if (!snap.exists()) return [];
   const rooms = [];
   snap.forEach(child => {
     const r = child.val();
-    if (r.meta.status === 'lobby') {
+    if (r.meta && r.meta.isPublic === true && r.meta.status === 'lobby') {
       rooms.push({
         code: child.key,
         hostName: r.meta.hostName,
-        difficulty: r.meta.difficulty,
         maxLives: r.meta.maxLives,
         playerCount: Object.keys(r.players || {}).length,
-        createdAt: r.meta.createdAt,
+        createdAt: r.meta.createdAt || 0,
       });
     }
   });
-  return rooms.sort((a, b) => b.createdAt - a.createdAt);
+  return rooms.sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
 }
 
 // ─── GAME STATE (hôte seulement) ─────────────────────────
 async function pushGameState(code, gameState) {
-  // Convertit le Set en objet pour Firebase
   const usedWordsObj = {};
   (gameState.usedWords instanceof Set ? [...gameState.usedWords] : gameState.usedWords)
     .forEach(w => { usedWordsObj[w] = true; });
 
+  // Vies et statut de chaque joueur (inclus dans gameState pour éviter une lecture séparée)
+  const playerLives = {};
+  (gameState.players || []).forEach(p => {
+    playerLives[p.id] = { lives: p.lives, alive: p.alive };
+  });
+
+  // Progression alphabet de chaque joueur (pour l'affichage côté clients)
+  const playerLetterCounts = {};
+  const playerLetterStrs   = {};
+  if (gameState.playerLetters) {
+    Object.entries(gameState.playerLetters).forEach(([pid, letSet]) => {
+      const arr = [...(letSet instanceof Set ? letSet : new Set(letSet))];
+      playerLetterCounts[pid] = arr.length;
+      playerLetterStrs[pid]   = arr.sort().join('');
+    });
+  }
+
   await ref(`rooms/${code}/gameState`).set({
     currentPlayerIndex: gameState.currentPlayerIndex,
-    currentSyllable: gameState.currentSyllable,
-    usedWords: usedWordsObj,
-    timeLeft: gameState.timeLeft,
-    phase: gameState.phase,
+    currentSyllable:    gameState.currentSyllable,
+    usedWords:          usedWordsObj,
+    timeLeft:           gameState.timeLeft,
+    totalTime:          gameState.totalTime || 8,
+    phase:              gameState.phase,
+    playerLives,
+    playerLetterCounts,
+    playerLetterStrs,
     lastUpdate: firebase.database.ServerValue.TIMESTAMP,
   });
 }
