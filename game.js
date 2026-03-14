@@ -25,6 +25,7 @@ let session = {
   mode: 'local',       // 'local' | 'online'
   roomCode: null,
   isHost: false,
+  isPublic: false,     // true si la room est publique
   unsubscribers: [],   // Firebase listeners cleanup
 };
 
@@ -283,6 +284,7 @@ async function handleCreate() {
     session.mode     = 'online';
     session.roomCode = code;
     session.isHost   = true;
+    session.isPublic = settings.isPublic;
 
     setupLobby(code, settings);
     showScreen('lobby');
@@ -309,6 +311,7 @@ async function handleJoin() {
     session.mode     = 'online';
     session.roomCode = code;
     session.isHost   = false;
+    session.isPublic = room.meta?.isPublic ?? false;
 
     setupLobby(code, room.meta);
     showScreen('lobby');
@@ -357,6 +360,7 @@ async function loadPublicRooms() {
           session.mode     = 'online';
           session.roomCode = r.code;
           session.isHost   = false;
+          session.isPublic = true; // toujours vrai (liste publique)
           setupLobby(r.code, r);
           showScreen('lobby');
           hideLoading();
@@ -473,7 +477,8 @@ async function handleLobbyStart() {
   if (!session.isHost) return;
   const snap = await ref(`rooms/${session.roomCode}/players`).get();
   const players = Object.values(snap.val() || {});
-  if (players.length < 2) return;
+  const onlinePlayers = players.filter(p => p.online !== false);
+  if (onlinePlayers.length < 2) return;
 
   await updateRoomStatus(session.roomCode, 'playing');
 }
@@ -762,7 +767,7 @@ async function isValidWord(word) {
   }
 
   // ── Fallback : petit tableau WORDS ───────────────────
-  if (WORDS.some(w => normalize(w) === word)) {
+  if (typeof WORDS !== 'undefined' && WORDS.some(w => normalize(w) === word)) {
     _wordCache.set(word, true);
     return true;
   }
@@ -806,29 +811,35 @@ function handleWordSubmit() {
 
 async function processWord(raw) {
   if (_isValidating) return;
+  _isValidating = true;  // ← positionné AVANT tout test pour éviter double-entrée
+
   const word     = normalize(raw);
   const syllable = normalize(state.currentSyllable);
 
   if (!word.includes(syllable)) {
+    _isValidating = false;
     showWordError(`❌ "${raw}" ne contient pas "${state.currentSyllable.toUpperCase()}"`);
     return;
   }
   if (state.usedWords.has(word)) {
+    _isValidating = false;
     showWordError(`🔁 "${raw}" a déjà été utilisé !`);
     return;
   }
 
   // ── Vérification (potentiellement réseau) ────────────
-  _isValidating       = true;
   wordInput.disabled  = true;
   btnValidate.disabled = true;
   showFeedback('🔍 Vérification…', 'checking');
 
-  const valid = await isValidWord(word);
-
-  _isValidating        = false;
-  wordInput.disabled   = false;
-  btnValidate.disabled = false;
+  let valid = false;
+  try {
+    valid = await isValidWord(word);
+  } finally {
+    _isValidating        = false;
+    wordInput.disabled   = false;
+    btnValidate.disabled = false;
+  }
 
   if (!valid) {
     showWordError(`📖 "${raw}" n'est pas dans le dictionnaire`);
@@ -930,6 +941,11 @@ function updateTimerDisplay() {
 
 // ─── SYLLABE ─────────────────────────────────────────────
 function pickSyllable() {
+  // Guard si words.js n'est pas chargé
+  if (typeof SYLLABLES === 'undefined' || typeof WORDS === 'undefined') {
+    const fallback = ['an','en','on','in','er','ir','or','al','ar','ou','ai'];
+    return fallback[Math.floor(Math.random() * fallback.length)];
+  }
   const used = state.usedWords;
   const valid = SYLLABLES.filter(syl => {
     const sylN = normalize(syl);
@@ -1146,12 +1162,16 @@ async function handlePlayAgain() {
   if (session.mode === 'online') {
     if (session.isHost) {
       // Réinitialise la room → retour au lobby
-      await updateRoomStatus(session.roomCode, 'lobby').catch(() => {});
+      await updateRoomStatus(session.roomCode, 'lobby', {
+        isPublic: session.isPublic,
+        hostName: me.name,
+        maxLives: state.maxLives,
+      }).catch(() => {});
       await ref(`rooms/${session.roomCode}/gameState`).remove().catch(() => {});
       state.phase = 'setup';
       setupLobby(session.roomCode, {
         maxLives: state.maxLives,
-        isPublic: true,
+        isPublic: session.isPublic,
       });
       showScreen('lobby');
       startLobbyListeners(session.roomCode);
@@ -1194,6 +1214,9 @@ function cleanupSession() {
     leaveRoom(session.roomCode, me.id, session.isHost).catch(() => {});
     session.roomCode = null;
   }
+  session.isHost   = false;
+  session.mode     = 'local';
+  session.isPublic = false;
   state.phase = 'setup';
   gameChatOverlay.classList.add('hidden');
 }

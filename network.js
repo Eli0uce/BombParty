@@ -92,6 +92,8 @@ async function createRoom(hostPlayer, settings) {
 }
 
 async function joinRoom(code, player) {
+  // Sécurité : valider le format du code pour éviter toute injection dans les chemins Firebase
+  if (!/^[A-Z0-9]{4}-[0-9]{4}$/.test(code)) throw new Error('Format de code invalide (ex: ABCD-1234)');
   const snap = await ref(`rooms/${code}`).get();
   if (!snap.exists()) throw new Error('Room introuvable');
   const room = snap.val();
@@ -117,7 +119,9 @@ async function leaveRoom(code, playerId, isHost) {
     const players = snap.val() || {};
     const others = Object.entries(players).filter(([id]) => id !== playerId);
     if (others.length > 0) {
-      const [newHostId, newHostData] = others[0];
+      // Préférer un joueur en ligne pour le transfert du rôle d'hôte
+      const onlineOthers = others.filter(([, p]) => p.online !== false);
+      const [newHostId, newHostData] = (onlineOthers.length > 0 ? onlineOthers : others)[0];
       await ref(`rooms/${code}/meta/host`).set(newHostId);
       await ref(`rooms/${code}/meta/hostName`).set(newHostData.name);
       await ref(`rooms/${code}/players/${newHostId}/isHost`).set(true);
@@ -230,11 +234,22 @@ async function pushGameState(code, gameState) {
   });
 }
 
-async function updateRoomStatus(code, status) {
+async function updateRoomStatus(code, status, roomMeta = null) {
   await ref(`rooms/${code}/meta/status`).set(status);
-  // Retirer de l'index public dès que la partie n'est plus en lobby
   if (status !== 'lobby') {
+    // Retirer de l'index public dès que la partie n'est plus en lobby
     ref(`publicRooms/${code}`).remove().catch(() => {});
+  } else if (roomMeta?.isPublic) {
+    // Re-publier dans la liste publique (ex : après "Rejouer")
+    try {
+      await ref(`publicRooms/${code}`).set({
+        hostName:  String(roomMeta.hostName || 'Joueur').slice(0, 18),
+        maxLives:  roomMeta.maxLives || 3,
+        createdAt: firebase.database.ServerValue.TIMESTAMP,
+      });
+    } catch (e) {
+      console.warn('[BombParty] publicRooms re-publish failed:', e.message);
+    }
   }
 }
 
@@ -257,8 +272,12 @@ async function clearPendingWord(code) {
 
 // ─── CHAT ────────────────────────────────────────────────
 async function sendChatMessage(code, author, avatar, text) {
+  // Sanitize côté réseau — le maxlength HTML peut être bypassé
+  const safeText   = String(text  || '').trim().slice(0, 200);
+  const safeAuthor = String(author || '').trim().slice(0, 18) || 'Joueur';
+  if (!safeText) return;
   const msgRef = ref(`rooms/${code}/chat`).push();
-  await msgRef.set({ author, avatar, text, ts: firebase.database.ServerValue.TIMESTAMP });
+  await msgRef.set({ author: safeAuthor, avatar, text: safeText, ts: firebase.database.ServerValue.TIMESTAMP });
 }
 
 // ─── WATCHERS ────────────────────────────────────────────
