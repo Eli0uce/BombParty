@@ -1,96 +1,113 @@
 /**
  * build-dictionary.js
- * Télécharge les CSV depuis hbenbel/French-Dictionary et génère words.js
+ * Télécharge TOUS les CSV depuis hbenbel/French-Dictionary et génère words.js
  * Usage : node build-dictionary.js
+ *
+ * Mots stockés en forme NORMALISÉE (sans accents, minuscules) pour que
+ * les lookups en jeu soient corrects (normalize() déjà appliqué côté client).
  */
 
 const https = require('https');
 const fs    = require('fs');
 const path  = require('path');
 
-// Fichiers à télécharger (on exclut verb.csv car 22 MB)
+// ── Tous les fichiers du repo ────────────────────────────────────────────────
 const CSV_URLS = [
-  'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/noun.csv',
-  'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/adj.csv',
-  'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/adv.csv',
-  'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/prep.csv',
-  'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/pron.csv',
-  'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/conj.csv',
-  'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/det.csv',
+  { url: 'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/noun.csv',  label: 'noun.csv' },
+  { url: 'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/adj.csv',   label: 'adj.csv'  },
+  { url: 'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/adv.csv',   label: 'adv.csv'  },
+  { url: 'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/verb.csv',  label: 'verb.csv' },
+  { url: 'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/prep.csv',  label: 'prep.csv' },
+  { url: 'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/pron.csv',  label: 'pron.csv' },
+  { url: 'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/conj.csv',  label: 'conj.csv' },
+  { url: 'https://raw.githubusercontent.com/hbenbel/French-Dictionary/master/dictionary/det.csv',   label: 'det.csv'  },
 ];
 
-// Regex : uniquement des lettres françaises (pas de chiffres, pas d'espaces, pas de tirets)
-const WORD_REGEX = /^[a-zA-ZÀ-ÿ]{2,}$/;
+// Regex sur la forme brute (avant normalisation)
+const RAW_WORD_REGEX = /^[a-zA-Z\u00C0-\u00FF]{2,}$/;
 
-function fetchText(url) {
+// Même normalisation que game.js
+function normalizeWord(str) {
+  return str.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z]/g, '');
+}
+
+// Téléchargement en streaming ligne par ligne (économise la RAM pour verb.csv 22MB)
+function fetchAndParse(url, allWords) {
   return new Promise((resolve, reject) => {
     https.get(url, res => {
-      if (res.statusCode !== 200) {
-        reject(new Error(`HTTP ${res.statusCode} pour ${url}`));
-        return;
-      }
-      const chunks = [];
-      res.on('data', chunk => chunks.push(chunk));
-      res.on('end',  () => resolve(Buffer.concat(chunks).toString('utf8')));
+      if (res.statusCode !== 200) { reject(new Error('HTTP ' + res.statusCode)); return; }
+
+      let buffer  = '';
+      let isFirst = true;
+      let added   = 0;
+
+      res.on('data', chunk => {
+        buffer += chunk.toString('utf8');
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (isFirst) { isFirst = false; continue; }
+          const raw = line.split(',')[0].trim();
+          if (!RAW_WORD_REGEX.test(raw)) continue;
+          const norm = normalizeWord(raw);
+          if (norm.length >= 2 && !allWords.has(norm)) { allWords.add(norm); added++; }
+        }
+      });
+
+      res.on('end', () => {
+        if (buffer) {
+          const raw = buffer.split(',')[0].trim();
+          if (RAW_WORD_REGEX.test(raw)) {
+            const norm = normalizeWord(raw);
+            if (norm.length >= 2 && !allWords.has(norm)) { allWords.add(norm); added++; }
+          }
+        }
+        resolve(added);
+      });
+
       res.on('error', reject);
     }).on('error', reject);
   });
 }
 
-function parseWords(csvText) {
-  const words = new Set();
-  const lines = csvText.split('\n');
-  // Sauter l'en-tête (première ligne "form,tags")
-  for (let i = 1; i < lines.length; i++) {
-    const line  = lines[i].trim();
-    if (!line) continue;
-    // Première colonne = le mot
-    const word  = line.split(',')[0].trim().toLowerCase();
-    if (WORD_REGEX.test(word)) {
-      words.add(word);
-    }
-  }
-  return words;
-}
-
-// ── Petit dictionnaire de base pour la sélection des syllabes ──────────────
+// Petit tableau normalisé pour la sélection des syllabes (itération rapide)
 const BASE_WORDS = [
-  "abaisser","abandonner","abattre","abdiquer","abîmer","abolir","abonder","aborder","aboutir","abréger",
-  "abriter","absenter","absorber","abstraire","abuser","accéder","accepter","acclamer","accompagner","accorder",
-  "accrocher","accumuler","accuser","acheter","achever","acquérir","actionner","admettre","adopter","adorer",
-  "adresser","afficher","affirmer","agir","ajouter","alerter","aligner","allonger","altérer","analyser",
-  "annoncer","apercevoir","apparaître","appeler","apporter","apprendre","approcher","approuver","argumenter","arrêter",
-  "arriver","assembler","assurer","atteindre","attendre","attraper","avancer","aventure","avion","avoir",
-  "baigner","balancer","bâtir","battre","boire","bouger","briller","brosser","bruler","calculer",
-  "calmer","capturer","caresser","cesser","changer","chanter","charger","chercher","choisir","circuler",
-  "classer","coller","commencer","communiquer","comparer","compter","conduire","connaitre","construire","continuer",
-  "contrôler","copier","couper","courir","couvrir","créer","crier","critiquer","cultiver","danser",
-  "décider","déclarer","découvrir","décrire","défendre","dégager","demander","dépenser","déposer","déranger",
-  "descendre","dessiner","détruire","devenir","deviner","diminuer","diriger","discuter","diviser","dominer",
-  "donner","dresser","écouter","écrire","effacer","élever","empêcher","employer","emporter","encourager",
-  "engager","enlever","enseigner","entendre","entreprendre","envoyer","espérer","établir","éteindre","étudier",
-  "évaluer","évoluer","exiger","expliquer","exprimer","fabriquer","fermer","finir","fonctionner","fonder",
-  "former","franchir","gagner","garder","glisser","gouverner","grandir","grouper","habiter","ignorer",
-  "imaginer","imposer","inclure","indiquer","informer","installer","inventer","joindre","jouer","laisser",
-  "lancer","lier","limiter","lire","livrer","maintenir","marcher","marquer","mesurer","mettre",
-  "modifier","montrer","mourir","nommer","obtenir","occuper","offrir","organiser","oublier","ouvrir",
-  "parler","partir","passer","perdre","permettre","placer","porter","poser","pousser","prendre",
-  "préparer","présenter","produire","projeter","proposer","protéger","publier","quitter","réaliser","recevoir",
-  "reconnaître","réduire","remplir","rendre","rentrer","réparer","répéter","répondre","rester","retourner",
-  "réunir","réussir","revenir","risquer","saisir","sembler","servir","sortir","souffrir","subir",
-  "suivre","supporter","tenir","terminer","tirer","tomber","tourner","traduire","travailler","traverser",
-  "trouver","utiliser","vaincre","valider","vendre","venir","vivre","voir","voler","voter",
-  "beau","bizarre","blanc","bleu","brillant","calme","capable","certain","chaud","clair",
-  "doux","dynamique","efficace","élégant","énorme","étrange","excellent","facile","fort","grand",
-  "heureux","intelligent","jeune","joyeux","libre","long","magnifique","mauvais","mystérieux","naturel",
-  "nouveau","parfait","petit","puissant","rapide","rare","riche","rouge","sérieux","simple",
-  "spécial","terrible","tranquille","utile","vieux","violent","vivant",
-  "arbre","avion","bateau","cheval","chien","chat","dragon","étoile","fleur","forêt",
-  "jardin","lumière","maison","montagne","nuage","océan","oiseau","pierre","soleil","terre",
-  "tigre","tour","voiture","château","chemin","rivière","village","monde","pays","ville",
+  "abaisser","abandonner","abattre","abimer","abolir","aborder","aboutir","abreger",
+  "abriter","absorber","abuser","acceder","accepter","accompagner","accorder","accuser",
+  "acheter","achever","actionner","admettre","adopter","adorer","agir","ajouter",
+  "alerter","analyser","annoncer","appeler","apporter","apprendre","approcher","arreter",
+  "arriver","assurer","atteindre","attendre","attraper","avancer","avoir",
+  "baigner","batir","battre","boire","bouger","briller","bruler","calculer",
+  "calmer","capturer","cesser","changer","chanter","chercher","choisir","circuler",
+  "commencer","communiquer","compter","conduire","construire","continuer","couper","courir",
+  "couvrir","creer","crier","cultiver","danser","decider","decouvrir","defendre",
+  "demander","descendre","dessiner","detruire","devenir","diriger","discuter","diviser",
+  "donner","ecouter","ecrire","elever","empecher","envoyer","esperer","etudier",
+  "evaluer","expliquer","exprimer","fermer","finir","fonctionner","former","franchir",
+  "gagner","garder","glisser","gouverner","grandir","habiter","imaginer","indiquer",
+  "informer","installer","inventer","jouer","laisser","lancer","lire","livrer",
+  "maintenir","marcher","marquer","mesurer","mettre","modifier","montrer","mourir",
+  "obtenir","occuper","offrir","organiser","oublier","ouvrir","parler","partir",
+  "passer","perdre","permettre","placer","porter","poser","pousser","prendre",
+  "preparer","presenter","produire","proposer","proteger","publier","quitter","realiser",
+  "recevoir","reduire","remplir","rendre","reparer","repondre","rester","retourner",
+  "reussir","revenir","risquer","saisir","servir","sortir","suivre","tenir",
+  "terminer","tirer","tomber","tourner","travailler","traverser","trouver","utiliser",
+  "vaincre","vendre","venir","vivre","voir","voler","voter",
+  "beau","blanc","bleu","brillant","calme","capable","certain","chaud","clair",
+  "doux","dynamique","efficace","elegant","enorme","excellent","facile","fort","grand",
+  "heureux","intelligent","jeune","joyeux","libre","long","magnifique","mauvais",
+  "nouveau","parfait","petit","puissant","rapide","rare","riche","rouge","simple",
+  "special","terrible","tranquille","utile","vieux","violent","vivant",
+  "arbre","avion","bateau","cheval","chien","chat","dragon","etoile","fleur","foret",
+  "jardin","lumiere","maison","montagne","nuage","ocean","oiseau","pierre","soleil",
+  "tigre","tour","voiture","chateau","chemin","riviere","village","monde","pays","ville",
 ];
 
-// ── Syllabes ────────────────────────────────────────────────────────────────
 const SYLLABLES_JS = `
 // Syllabes/bigrammes utilisés dans le jeu
 const SYLLABLES = [
@@ -121,49 +138,45 @@ const SYLLABLES = [
 `;
 
 async function main() {
-  console.log('=== Build French Dictionary for BombParty ===\n');
+  console.log('=== Build French Dictionary for BombParty ===');
+  console.log('Source : https://github.com/hbenbel/French-Dictionary\n');
 
   const allWords = new Set();
 
-  for (const url of CSV_URLS) {
-    const name = path.basename(url);
-    process.stdout.write(`⬇  Téléchargement ${name}...`);
+  for (const { url, label } of CSV_URLS) {
+    process.stdout.write('Telechargement ' + label + '...');
     try {
-      const text  = await fetchText(url);
-      const words = parseWords(text);
-      process.stdout.write(` ${words.size.toLocaleString()} mots valides\n`);
-      for (const w of words) allWords.add(w);
+      const added = await fetchAndParse(url, allWords);
+      console.log('  +' + added.toLocaleString() + ' mots  total: ' + allWords.size.toLocaleString());
     } catch (e) {
-      process.stdout.write(` ERREUR: ${e.message}\n`);
+      console.log('  ERREUR: ' + e.message);
     }
   }
 
-  console.log(`\n✅ Total mots uniques : ${allWords.size.toLocaleString()}`);
+  console.log('\nTotal mots uniques normalises : ' + allWords.size.toLocaleString());
 
-  // Trier pour un diff git stable
   const sorted = [...allWords].sort();
 
-  const js = `// ════════════════════════════════════════════════════════
-//  WORDS.JS — Dictionnaire français BombParty
-//  Source   : https://github.com/hbenbel/French-Dictionary
-//  Mots     : ${allWords.size.toLocaleString()} (noms, adjectifs, adverbes, prépositions…)
-//  Généré   : ${new Date().toISOString().split('T')[0]}
-// ════════════════════════════════════════════════════════
-
-// Petit tableau de base utilisé pour la sélection des syllabes (itération rapide)
-const WORDS = ${JSON.stringify(BASE_WORDS)};
-
-// Dictionnaire complet en Set pour validation O(1)
-const WORDS_SET = new Set(${JSON.stringify(sorted)});
-${SYLLABLES_JS}`;
+  const date = new Date().toISOString().split('T')[0];
+  const output = '// Dictionnaire francais BombParty\n'
+    + '// Source   : https://github.com/hbenbel/French-Dictionary\n'
+    + '// Mots     : ' + allWords.size.toLocaleString() + ' (noms, adj, adv, verbes conjugues...)\n'
+    + '// Stockage : formes NORMALISEES (sans accents) = lookup O(1) correct\n'
+    + '// Genere   : ' + date + '\n\n'
+    + '// Petit tableau pour la selection des syllabes (iteration rapide)\n'
+    + 'const WORDS = ' + JSON.stringify(BASE_WORDS) + ';\n\n'
+    + '// Dictionnaire complet - formes normalisees - validation O(1)\n'
+    + 'const WORDS_SET = new Set(' + JSON.stringify(sorted) + ');\n'
+    + SYLLABLES_JS;
 
   const outPath = path.join(__dirname, 'words.js');
-  fs.writeFileSync(outPath, js, 'utf8');
+  fs.writeFileSync(outPath, output, 'utf8');
 
-  const sizeKB = (fs.statSync(outPath).size / 1024).toFixed(1);
-  console.log(`📄 words.js écrit (${sizeKB} KB)`);
-  console.log('\nTerminé ! 🎉');
+  const bytes = fs.statSync(outPath).size;
+  console.log('words.js ecrit : ' + (bytes / 1024).toFixed(0) + ' KB (' + (bytes / 1024 / 1024).toFixed(2) + ' MB)');
+  console.log('GitHub Pages compresse automatiquement avec gzip (~30% de la taille brute).');
+  console.log('\nTermine !');
 }
 
-main().catch(err => { console.error(err); process.exit(1); });
+main().catch(function(err) { console.error(err); process.exit(1); });
 
