@@ -158,23 +158,47 @@
         <h3>⚙️ Paramètres</h3>
         <div class="settings-grid">
           <div class="setting-item">
-            <label for="create-lives">Vies par joueur</label>
+            <label for="create-lives">❤️ Vies par joueur</label>
             <select id="create-lives">
-              <option value="1">1 vie</option>
-              <option value="2">2 vies</option>
-              <option value="3" selected>3 vies</option>
-              <option value="5">5 vies</option>
+              <option value="1">1 vie — Extrême</option>
+              <option value="2">2 vies — Difficile</option>
+              <option value="3" selected>3 vies — Normal</option>
+              <option value="5">5 vies — Détendu</option>
             </select>
           </div>
           <div class="setting-item setting-item-full">
             <label class="toggle-label">
               <input type="checkbox" id="create-public" checked />
               <span class="toggle-slider"></span>
-              <span>Partie publique (visible dans la liste)</span>
+              <span>🌍 Partie publique <small class="toggle-sublabel">(visible dans la liste des rooms)</small></span>
             </label>
           </div>
         </div>
       </div>
+
+      <!-- Aperçu de la partie -->
+      <div class="game-preview">
+        <div class="game-preview-title">📋 Aperçu</div>
+        <div class="game-preview-grid">
+          <div class="game-preview-item">
+            <span class="preview-icon">⏱</span>
+            <div><strong>Timer</strong><small>8–20 s aléatoire</small></div>
+          </div>
+          <div class="game-preview-item">
+            <span class="preview-icon">💬</span>
+            <div><strong>Chat</strong><small>En temps réel</small></div>
+          </div>
+          <div class="game-preview-item">
+            <span class="preview-icon">🅰️</span>
+            <div><strong>Alphabet</strong><small>Bonus A→Z</small></div>
+          </div>
+          <div class="game-preview-item">
+            <span class="preview-icon">👑</span>
+            <div><strong>Max</strong><small>8 joueurs</small></div>
+          </div>
+        </div>
+      </div>
+
       <button id="btn-do-create" class="btn btn-primary btn-large">🚀 Créer et obtenir un code</button>
       <div id="create-error" class="error-banner hidden"></div>
     </div>
@@ -431,59 +455,72 @@
         </div>
       </div>
       <div class="header-right">
-        <button id="btn-game-chat-toggle" class="btn btn-ghost btn-sm hidden">💬</button>
+        <button id="btn-game-chat-toggle" class="btn btn-ghost btn-sm hidden">
+          💬 <span id="chat-unread-count" class="chat-unread-count hidden">0</span>
+        </button>
         <button id="btn-quit" class="btn btn-ghost btn-sm">✕ Quitter</button>
       </div>
     </header>
 
-    <main class="game-main">
-      <aside class="players-panel left" id="panel-left"></aside>
+    <!-- Zone de jeu + chat côte à côte -->
+    <div class="game-body">
 
-      <div class="bomb-area">
-        <div id="bomb-wrapper" class="bomb-wrapper">
-          <div id="bomb" class="bomb">
-            <div class="bomb-body">
-              <div class="bomb-highlight"></div>
-              <div class="bomb-fuse">
-                <div id="fuse-fire" class="fuse-fire">🔥</div>
+      <!-- ── Centre : joueurs + bombe ── -->
+      <div class="game-center">
+        <main class="game-main">
+          <aside class="players-panel left" id="panel-left"></aside>
+
+          <div class="bomb-area">
+            <div id="bomb-wrapper" class="bomb-wrapper">
+              <div id="bomb" class="bomb">
+                <div class="bomb-body">
+                  <div class="bomb-highlight"></div>
+                  <div class="bomb-fuse">
+                    <div id="fuse-fire" class="fuse-fire">🔥</div>
+                  </div>
+                </div>
+                <div id="bomb-timer" class="bomb-timer">8</div>
               </div>
+              <div id="explosion" class="explosion hidden">💥</div>
             </div>
-            <div id="bomb-timer" class="bomb-timer">8</div>
+
+            <div class="input-area">
+              <div id="active-player-name" class="active-player-name">Joueur 1</div>
+              <div id="my-turn-badge" class="my-turn-badge hidden">⌨️ C'est votre tour !</div>
+              <div class="input-wrapper" id="input-wrapper">
+                <input
+                  type="text" id="word-input" class="word-input"
+                  placeholder="Tape un mot..." autocomplete="off" spellcheck="false"
+                />
+                <button id="btn-validate" class="btn btn-validate">✓</button>
+              </div>
+              <div id="feedback-msg" class="feedback-msg"></div>
+            </div>
           </div>
-          <div id="explosion" class="explosion hidden">💥</div>
-        </div>
 
-        <div class="input-area">
-          <div id="active-player-name" class="active-player-name">Joueur 1</div>
-          <div id="my-turn-badge" class="my-turn-badge hidden">⌨️ C'est votre tour !</div>
-          <div class="input-wrapper" id="input-wrapper">
-            <input
-              type="text" id="word-input" class="word-input"
-              placeholder="Tape un mot..." autocomplete="off" spellcheck="false"
-            />
-            <button id="btn-validate" class="btn btn-validate">✓</button>
+          <aside class="players-panel right" id="panel-right"></aside>
+        </main>
+
+        <div class="players-panel-mobile" id="panel-mobile"></div>
+      </div><!-- /game-center -->
+
+      <!-- ── Panneau Chat (permanent desktop / overlay mobile) ── -->
+      <aside class="game-chat-panel" id="game-chat-panel">
+        <div class="game-chat-panel-header">
+          <div class="chat-panel-title">
+            <span class="chat-panel-icon">💬</span>
+            <span>Chat</span>
           </div>
-          <div id="feedback-msg" class="feedback-msg"></div>
+          <button id="btn-game-chat-close" class="btn btn-ghost btn-xs">✕</button>
         </div>
-      </div>
+        <div id="game-chat-messages" class="chat-messages game-chat-messages"></div>
+        <div class="chat-input-row game-chat-input-row">
+          <input type="text" id="game-chat-input" class="chat-input" placeholder="Message…" maxlength="80" />
+          <button id="btn-game-send-chat" class="btn btn-secondary btn-sm">→</button>
+        </div>
+      </aside>
 
-      <aside class="players-panel right" id="panel-right"></aside>
-    </main>
-
-    <div class="players-panel-mobile" id="panel-mobile"></div>
-
-    <!-- Chat overlay -->
-    <div id="game-chat-overlay" class="chat-overlay hidden">
-      <div class="chat-overlay-header">
-        <span>💬 Chat</span>
-        <button id="btn-game-chat-close" class="btn btn-ghost btn-sm">✕</button>
-      </div>
-      <div id="game-chat-messages" class="chat-messages"></div>
-      <div class="chat-input-row">
-        <input type="text" id="game-chat-input" class="chat-input" placeholder="Message..." maxlength="80" />
-        <button id="btn-game-send-chat" class="btn btn-secondary btn-sm">→</button>
-      </div>
-    </div>
+    </div><!-- /game-body -->
   </div>
 </section>
 
@@ -494,17 +531,21 @@
   <div class="end-container">
     <div id="confetti-container" class="confetti-container"></div>
     <div class="end-card">
-      <div class="end-trophy">🏆</div>
+      <div class="end-trophy-wrap">
+        <div class="end-trophy">🏆</div>
+        <div class="end-trophy-glow"></div>
+      </div>
       <h1 class="end-title">Fin de partie !</h1>
       <div id="winner-display" class="winner-display">
         <span id="winner-emoji" class="winner-emoji">🎉</span>
         <span id="winner-name"  class="winner-name">Joueur 1</span>
         <span class="winner-subtitle">remporte la victoire !</span>
       </div>
+      <div class="end-scoreboard-title">📊 Classement final</div>
       <div id="scoreboard" class="scoreboard"></div>
       <div class="end-actions">
         <button id="btn-play-again" class="btn btn-primary btn-large">🔄 Rejouer</button>
-        <button id="btn-back-menu"  class="btn btn-secondary btn-large">🏠 Menu</button>
+        <button id="btn-back-menu"  class="btn btn-ghost btn-large">🏠 Menu</button>
       </div>
     </div>
   </div>

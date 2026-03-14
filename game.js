@@ -110,11 +110,13 @@ const panelMobile       = $('panel-mobile');
 const btnQuit           = $('btn-quit');
 const gameRoomCodeBadge = $('game-room-code-badge');
 const btnGameChatToggle = $('btn-game-chat-toggle');
-const gameChatOverlay   = $('game-chat-overlay');
+const gameChatPanel     = $('game-chat-panel');
 const gameChatMessages  = $('game-chat-messages');
 const gameChatInput     = $('game-chat-input');
 const btnGameSendChat   = $('btn-game-send-chat');
 const btnGameChatClose  = $('btn-game-chat-close');
+const chatUnreadCount   = $('chat-unread-count');
+let _chatUnread = 0;
 
 // End
 const winnerEmojiEl  = $('winner-emoji');
@@ -247,14 +249,19 @@ function init() {
   wordInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleWordSubmit(); });
   btnQuit.addEventListener('click', handleQuitGame);
   btnGameChatToggle.addEventListener('click', () => {
-    const wasHidden = gameChatOverlay.classList.contains('hidden');
-    gameChatOverlay.classList.toggle('hidden');
-    if (wasHidden) {
-      // Le conteneur était masqué (display:none) → scrollHeight = 0 → scroll au bas maintenant qu'il est visible
+    const isOpen = gameChatPanel.classList.contains('chat-panel-open');
+    gameChatPanel.classList.toggle('chat-panel-open');
+    if (!isOpen) {
+      // Vient de s'ouvrir : reset badge non-lus + scroll en bas
+      _chatUnread = 0;
+      chatUnreadCount.textContent = '0';
+      chatUnreadCount.classList.add('hidden');
       requestAnimationFrame(() => { gameChatMessages.scrollTop = gameChatMessages.scrollHeight; });
     }
   });
-  btnGameChatClose.addEventListener('click',  () => gameChatOverlay.classList.add('hidden'));
+  btnGameChatClose.addEventListener('click', () => {
+    gameChatPanel.classList.remove('chat-panel-open');
+  });
   btnGameSendChat.addEventListener('click', sendGameChat);
   gameChatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendGameChat(); });
 
@@ -923,6 +930,16 @@ function addChatMessage(container, msg) {
   // Limiter à 50 messages visibles
   while (container.children.length > 50) container.removeChild(container.firstChild);
   requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
+
+  // Badge non-lus (mobile) : incrémenter si le panel n'est pas ouvert
+  if (container === gameChatMessages) {
+    const panelVisible = window.innerWidth > 900 || gameChatPanel.classList.contains('chat-panel-open');
+    if (!panelVisible) {
+      _chatUnread++;
+      chatUnreadCount.textContent = _chatUnread > 9 ? '9+' : String(_chatUnread);
+      chatUnreadCount.classList.remove('hidden');
+    }
+  }
 }
 
 function addChatSystem(container, text) {
@@ -943,6 +960,10 @@ function startOnlineGame(code) {
   gameRoomCodeBadge.textContent = code;
   gameRoomCodeBadge.classList.remove('hidden');
   btnGameChatToggle.classList.remove('hidden');
+  // Activer le chat panel (visible en permanence sur desktop)
+  document.querySelector('.game-layout').classList.add('game-has-chat');
+  _chatUnread = 0;
+  chatUnreadCount.classList.add('hidden');
 
   buildPlayersUI();
   showScreen('game');
@@ -1521,6 +1542,9 @@ function startLocalGame() {
 
   gameRoomCodeBadge.classList.add('hidden');
   btnGameChatToggle.classList.add('hidden');
+  // Pas de chat en local
+  document.querySelector('.game-layout').classList.remove('game-has-chat');
+  gameChatPanel.classList.remove('chat-panel-open');
   myTurnBadge.classList.add('hidden');
 
   buildPlayersUI();
@@ -1561,11 +1585,14 @@ function endGame() {
     const hearts = Array.from({ length: state.maxLives }, (_, j) =>
       `<span class="heart ${j >= p.lives ? 'lost' : ''}">❤️</span>`
     ).join('');
+    const words = state.wordsByPlayer?.[p.id] || 0;
+    const wordsLabel = words > 0 ? `💬 ${words} mot${words > 1 ? 's' : ''}` : '';
     return `<div class="score-row">
       <span class="score-rank">${RANK_EMOJIS[i]}</span>
       <span class="score-avatar">${escapeHtml(p.avatar)}</span>
       <span class="score-name">${escapeHtml(p.name)}</span>
       <span class="score-lives">${hearts}</span>
+      ${wordsLabel ? `<span class="score-words">${wordsLabel}</span>` : ''}
     </div>`;
   }).join('');
 
