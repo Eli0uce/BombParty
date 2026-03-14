@@ -230,6 +230,7 @@ async function pushGameState(code, gameState) {
     playerLives,
     playerLetterCounts,
     playerLetterStrs,
+    wordsByPlayer:      gameState.wordsByPlayer || {},
     lastUpdate: firebase.database.ServerValue.TIMESTAMP,
   });
 }

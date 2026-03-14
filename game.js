@@ -36,6 +36,7 @@ let state = {
   currentSyllable: '',
   usedWords: new Set(),
   playerLetters: {},    // playerId → Set des lettres utilisées ce cycle
+  wordsByPlayer: {},    // playerId → nb mots trouvés (stats fin de partie)
   timerInterval: null,
   clientTimerInterval: null, // timer local côté client (non-hôte)
   timeLeft: 8,
@@ -47,7 +48,7 @@ let firebaseOk = false;
 
 // ─── DOM ─────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const screens = ['menu','create','join','public','local','lobby','game','end'];
+const screens = ['menu','create','join','public','leaderboard','local','lobby','game','end'];
 
 // Menu
 const profileAvatarDisplay = $('profile-avatar-display');
@@ -264,6 +265,17 @@ function init() {
   // Nettoyage des vieilles rooms
   if (firebaseOk) cleanOldRooms();
 
+  // ── Authentification ─────────────────────────────────────
+  if (firebaseOk && typeof initAuth !== 'undefined') {
+    initAuth(handleAuthStateChange);
+  }
+  $('btn-auth-google').addEventListener('click', handleAuthGoogle);
+  $('btn-auth-discord').addEventListener('click', handleAuthDiscord);
+  $('btn-auth-signout').addEventListener('click', handleAuthSignOut);
+  $('btn-leaderboard').addEventListener('click', () => { showScreen('leaderboard'); loadLeaderboard(); });
+  $('btn-refresh-leaderboard').addEventListener('click', loadLeaderboard);
+  $('btn-show-history').addEventListener('click', loadHistory);
+
   showScreen('menu');
 }
 
@@ -426,6 +438,7 @@ function startLobbyListeners(code) {
       state.maxLives      = room.meta.maxLives;
       state.usedWords     = new Set();
       state.playerLetters = {};
+      state.wordsByPlayer = {};
       state.phase         = 'playing';
 
       // Stopper les listeners du lobby AVANT de lancer le jeu
@@ -488,6 +501,195 @@ async function handleLobbyLeave() {
   cleanupSession();
   showScreen('menu');
   hideLoading();
+}
+
+// ════════════════════════════════════════════════════════
+//  AUTH — Handlers UI
+// ════════════════════════════════════════════════════════
+function _showAuthError(msg) {
+  const el = $('auth-error');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 5000);
+}
+
+async function handleAuthGoogle() {
+  if (typeof authSignInGoogle === 'undefined') return;
+  try {
+    $('btn-auth-google').disabled = true;
+    await authSignInGoogle();
+  } catch (e) {
+    if (e.code !== 'auth/popup-closed-by-user') _showAuthError(e.message);
+  } finally {
+    $('btn-auth-google').disabled = false;
+  }
+}
+
+async function handleAuthDiscord() {
+  if (typeof authSignInDiscord === 'undefined') return;
+  try {
+    $('btn-auth-discord').disabled = true;
+    await authSignInDiscord();
+  } catch (e) {
+    _showAuthError(e.message);
+  } finally {
+    $('btn-auth-discord').disabled = false;
+  }
+}
+
+async function handleAuthSignOut() {
+  if (typeof authSignOut === 'undefined') return;
+  try { await authSignOut(); } catch (e) { console.warn('signOut:', e.message); }
+}
+
+function handleAuthStateChange(user) {
+  const guestEl = $('auth-guest');
+  const userEl  = $('auth-user');
+  $('auth-error').classList.add('hidden');
+
+  if (user) {
+    guestEl.classList.add('hidden');
+    userEl.classList.remove('hidden');
+
+    // Avatar/photo
+    const wrap = $('auth-avatar-wrap');
+    wrap.innerHTML = '';
+    if (user.photoURL) {
+      const img = document.createElement('img');
+      img.src = user.photoURL;
+      img.alt = user.displayName || '';
+      img.onerror = () => { wrap.textContent = user.avatar || '🎮'; };
+      wrap.appendChild(img);
+    } else {
+      wrap.textContent = user.avatar || '🎮';
+    }
+
+    $('auth-display-name').textContent = user.displayName || 'Joueur';
+    const s = user.stats || {};
+    $('auth-stats-line').textContent =
+      `${s.gamesWon || 0} V · ${s.gamesPlayed || 0} partie${(s.gamesPlayed || 0) !== 1 ? 's' : ''}`;
+
+    // Mettre à jour me.name / me.id si pas en partie
+    if (!session.roomCode) {
+      me.name = user.displayName || me.name;
+      profileNameInput.value = me.name;
+      me.id = user.uid;  // l'UID Firebase = identifiant stable pour les stats
+    }
+  } else {
+    guestEl.classList.remove('hidden');
+    userEl.classList.add('hidden');
+
+    // Restaurer l'ID aléatoire et le nom local
+    if (!session.roomCode) {
+      me.id = generatePlayerId();
+      const saved = localStorage.getItem('bp_name');
+      if (saved) { me.name = saved; profileNameInput.value = saved; }
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  CLASSEMENT
+// ════════════════════════════════════════════════════════
+async function loadLeaderboard() {
+  const listEl = $('leaderboard-list');
+  listEl.innerHTML = '<div class="rooms-loading">⏳ Chargement…</div>';
+
+  // Stats perso (si connecté)
+  const authUser = (typeof authGetCurrentUser !== 'undefined') ? authGetCurrentUser() : null;
+  const myStatsEl = $('lb-my-stats');
+  if (authUser) {
+    myStatsEl.classList.remove('hidden');
+    const wrap = $('lb-my-avatar');
+    wrap.innerHTML = '';
+    if (authUser.photoURL) {
+      const img = document.createElement('img');
+      img.src = authUser.photoURL;
+      img.onerror = () => { wrap.textContent = authUser.avatar || '🎮'; };
+      wrap.appendChild(img);
+    } else {
+      wrap.textContent = authUser.avatar || '🎮';
+    }
+    $('lb-my-name').textContent = authUser.displayName || 'Joueur';
+    const s = authUser.stats || {};
+    $('lb-my-wins').textContent  = `${s.gamesWon    || 0} V`;
+    $('lb-my-games').textContent = `${s.gamesPlayed  || 0} parties`;
+    $('lb-my-words').textContent = `${s.wordsFound   || 0} mots`;
+  } else {
+    myStatsEl.classList.add('hidden');
+  }
+
+  // Classement global
+  try {
+    if (typeof authLoadLeaderboard === 'undefined') {
+      listEl.innerHTML = '<div class="lb-empty">🔒 Connexion requise pour voir le classement.</div>';
+      return;
+    }
+    const entries = await authLoadLeaderboard(15);
+    if (!entries.length) {
+      listEl.innerHTML = '<div class="lb-empty">😴 Aucun joueur classé pour l\'instant.<br>Soyez le premier !</div>';
+      return;
+    }
+    const ranks = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+    listEl.innerHTML = '';
+    entries.forEach((entry, i) => {
+      const isMe = authUser && entry.uid === authUser.uid;
+      const row  = document.createElement('div');
+      row.className = 'lb-row' + (isMe ? ' is-me' : '');
+
+      const avatarHtml = entry.photoURL
+        ? `<img src="${escapeHtml(entry.photoURL)}" alt="" onerror="this.parentElement.textContent='${escapeHtml(entry.avatar||'🎮')}'">`
+        : escapeHtml(entry.avatar || '🎮');
+      const providerLabel = entry.provider === 'google' ? '🔵 Google' : entry.provider === 'discord' ? '🟣 Discord' : '';
+      const pct = entry.gamesPlayed ? Math.round((entry.gamesWon / entry.gamesPlayed) * 100) : 0;
+
+      row.innerHTML = `
+        <div class="lb-rank">${ranks[i] || (i + 1)}</div>
+        <div class="lb-avatar">${avatarHtml}</div>
+        <div class="lb-name-col">
+          <div class="lb-name">${escapeHtml(entry.displayName || 'Joueur')}</div>
+          ${providerLabel ? `<div class="lb-provider">${providerLabel}</div>` : ''}
+        </div>
+        <div class="lb-stats-col">
+          <div class="lb-wins">${entry.gamesWon} V</div>
+          <div class="lb-detail">${entry.gamesPlayed} parties · ${pct}%</div>
+        </div>`;
+      listEl.appendChild(row);
+    });
+  } catch (e) {
+    listEl.innerHTML = `<div class="lb-empty">❌ ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function loadHistory() {
+  const section = $('history-section');
+  const list    = $('history-list');
+  section.classList.remove('hidden');
+  list.innerHTML = '<div class="rooms-loading">⏳ Chargement…</div>';
+
+  try {
+    const entries = await authLoadHistory(15);
+    if (!entries.length) {
+      list.innerHTML = '<div class="lb-empty">Aucune partie enregistrée.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    entries.forEach(e => {
+      const row  = document.createElement('div');
+      row.className = 'hist-row';
+      const date = e.date ? new Date(e.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+      row.innerHTML = `
+        <div class="hist-result">${e.won ? '🏆' : '💥'}</div>
+        <div class="hist-info">
+          <div class="hist-date">${date}</div>
+          <div class="hist-detail">${e.wordsFound || 0} mot${(e.wordsFound||0)>1?'s':''} · ${e.playerCount || 2} joueurs</div>
+        </div>
+        <div class="hist-pos">${e.position ? `#${e.position}` : ''}</div>`;
+      list.appendChild(row);
+    });
+  } catch (e) {
+    list.innerHTML = `<div class="lb-empty">❌ ${escapeHtml(e.message)}</div>`;
+  }
 }
 
 function sendLobbyChat() {
@@ -588,6 +790,9 @@ function applyRemoteGameState(gs) {
       if (d) { p.lives = d.lives ?? p.lives; p.alive = d.alive ?? p.alive; }
     });
   }
+
+  // ── Suivi mots par joueur (pour les stats) ────────────────────────────────
+  if (gs.wordsByPlayer) state.wordsByPlayer = { ...gs.wordsByPlayer };
 
   // ── Progression alphabet pour affichage ──────────────────────────────────
   if (gs.playerLetterCounts || gs.playerLetterStrs) {
@@ -853,6 +1058,9 @@ async function processWord(raw) {
   clearInterval(state.timerInterval);
   wordInput.value = '';
 
+  // ── Compteur de mots par joueur (pour les stats) ──────
+  state.wordsByPlayer[cp.id] = (state.wordsByPlayer[cp.id] || 0) + 1;
+
   // ── Suivi alphabet ────────────────────────────────────
   if (!state.playerLetters[cp.id]) state.playerLetters[cp.id] = new Set();
   for (const ch of word) {
@@ -1096,10 +1304,11 @@ function startLocalGame() {
     alive: true,
   }));
   state.maxLives           = parseInt(localLives.value);
-  state.totalTime          = pickRandomTime(); // sera redéfini à chaque tour
+  state.totalTime          = pickRandomTime();
   state.timeLeft           = state.totalTime;
   state.usedWords          = new Set();
   state.playerLetters      = {};
+  state.wordsByPlayer      = {};
   state.currentPlayerIndex = -1;
   state.phase              = 'playing';
 
@@ -1156,6 +1365,22 @@ function endGame() {
 
   launchConfetti();
   showScreen('end');
+
+  // ── Sauvegarder les stats si connecté (mode en ligne uniquement) ──────────
+  if (session.mode === 'online' && typeof authGetCurrentUser !== 'undefined') {
+    const authUser = authGetCurrentUser();
+    if (authUser) {
+      const won      = winner.id === me.id;
+      const position = sorted.findIndex(p => p.id === me.id) + 1;
+      const myWords  = state.wordsByPlayer?.[me.id] || 0;
+      authSaveGameResult({
+        won,
+        position: position || sorted.length,
+        wordsFound:  myWords,
+        playerCount: state.players.length,
+      }).catch(e => console.warn('[Auth] Erreur stats:', e.message));
+    }
+  }
 }
 
 async function handlePlayAgain() {

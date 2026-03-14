@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>BombParty — Connexion Discord</title>
+  <style>
+    * { margin: 0; box-sizing: border-box; }
+    body {
+      display: flex; align-items: center; justify-content: center;
+      height: 100vh; background: #0d0d1a; color: #fff;
+      font-family: system-ui, -apple-system, sans-serif; text-align: center;
+    }
+    .icon { font-size: 3rem; animation: pulse 0.8s ease-in-out infinite alternate; }
+    @keyframes pulse { from { opacity: 0.4; transform: scale(0.95); } to { opacity: 1; transform: scale(1.05); } }
+    p { color: #aaa; margin-top: 1rem; font-size: 1rem; }
+    .err { color: #e94560; }
+  </style>
+</head>
+<body>
+  <div>
+    <div class="icon">💣</div>
+    <p id="msg">Connexion Discord en cours…</p>
+  </div>
+  <script>
+    (() => {
+      const hash   = window.location.hash.slice(1);
+      const params = new URLSearchParams(hash);
+      const token  = params.get('access_token');
+      const error  = params.get('error');
+      const msg    = document.getElementById('msg');
+
+      if (error) {
+        msg.className = 'err';
+        msg.textContent = 'Erreur Discord : ' + error;
+        return;
+      }
+
+      if (window.opener && !window.opener.closed) {
+        // Cas normal : ouverture en popup → envoyer le token au parent
+        try {
+          window.opener.postMessage(
+            { type: 'DISCORD_AUTH', accessToken: token || null },
+            window.location.origin
+          );
+          msg.textContent = 'Authentifié ! Fermeture…';
+          setTimeout(() => window.close(), 400);
+        } catch (e) {
+          msg.className = 'err';
+          msg.textContent = 'Erreur de communication : ' + e.message;
+        }
+      } else {
+        // Fallback : redirection directe (pas de popup)
+        if (token) {
+          sessionStorage.setItem('bp_discord_token', token);
+          msg.textContent = 'Retour vers BombParty…';
+        } else {
+          msg.className = 'err';
+          msg.textContent = 'Aucun token reçu.';
+        }
+        const base = window.location.pathname.replace(/callback\.html.*$/, '') || '/';
+        setTimeout(() => { window.location.href = base; }, 800);
+      }
+    })();
+  </script>
+</body>
+</html>
+
