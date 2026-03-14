@@ -49,7 +49,6 @@ async function createRoom(hostPlayer, settings) {
       host: hostPlayer.id,
       hostName: hostPlayer.name,
       status: 'lobby',
-      difficulty: settings.difficulty,
       maxLives: settings.maxLives,
       isPublic: settings.isPublic,
       createdAt: firebase.database.ServerValue.TIMESTAMP,
