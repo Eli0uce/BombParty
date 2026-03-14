@@ -24,7 +24,7 @@ const FIREBASE_CONFIG = {
 //   2. Onglet "OAuth2" → "Redirects" : ajoutez  https://VOTRE_SITE/callback.html
 //      (ex: https://eli0uce.github.io/BombParty/callback.html)
 //   3. Copiez le "Client ID" (PAS le secret — ne jamais mettre le secret côté client !)
-const DISCORD_CLIENT_ID = '';   // ← Votre Client ID Discord (ex: '1234567890123456789')
+const DISCORD_CLIENT_ID = '1482370870864248843';   // ← Votre Client ID Discord (ex: '1234567890123456789')
 
 // URL de redirection — doit correspondre EXACTEMENT à ce qui est renseigné dans Discord
 const DISCORD_REDIRECT_URI = window.location.href.replace(/[^/]*(\?.*)?$/, '') + 'callback.html';
