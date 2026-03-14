@@ -272,9 +272,17 @@ function init() {
   $('btn-auth-google').addEventListener('click', handleAuthGoogle);
   $('btn-auth-discord').addEventListener('click', handleAuthDiscord);
   $('btn-auth-signout').addEventListener('click', handleAuthSignOut);
-  $('btn-leaderboard').addEventListener('click', () => { showScreen('leaderboard'); loadLeaderboard(); });
-  $('btn-refresh-leaderboard').addEventListener('click', loadLeaderboard);
-  $('btn-show-history').addEventListener('click', loadHistory);
+  $('btn-leaderboard').addEventListener('click', () => {
+    showScreen('leaderboard');
+    initLbTabs();
+    loadLeaderboard();
+  });
+  $('btn-refresh-leaderboard').addEventListener('click', () => {
+    const activeTab = document.querySelector('.lb-tab--active')?.dataset?.tab || 'ranking';
+    if (activeTab === 'ranking') loadLeaderboard();
+    else loadHistory(true);
+  });
+  $('btn-load-more-history').addEventListener('click', loadHistoryMore);
 
   showScreen('menu');
 }
@@ -589,17 +597,59 @@ function handleAuthStateChange(user) {
 }
 
 // ════════════════════════════════════════════════════════
-//  CLASSEMENT
+//  CLASSEMENT — onglets
+// ════════════════════════════════════════════════════════
+function initLbTabs() {
+  document.querySelectorAll('.lb-tab').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('.lb-tab').forEach(b => b.classList.remove('lb-tab--active'));
+      btn.classList.add('lb-tab--active');
+      const tab = btn.dataset.tab;
+      $('lb-panel-ranking').classList.toggle('lb-panel--hidden', tab !== 'ranking');
+      $('lb-panel-history').classList.toggle('lb-panel--hidden', tab !== 'history');
+      if (tab === 'history') loadHistory(true);
+    };
+  });
+}
+
+// ─── helpers date ─────────────────────────────────────
+function _relativeDate(ts) {
+  if (!ts) return '—';
+  const now  = Date.now();
+  const diff = now - ts;
+  const secs  = Math.floor(diff / 1000);
+  const mins  = Math.floor(secs  / 60);
+  const hours = Math.floor(mins  / 60);
+  const days  = Math.floor(hours / 24);
+  if (days === 0) {
+    if (hours === 0) return mins <= 1 ? 'À l\'instant' : `Il y a ${mins} min`;
+    return `Il y a ${hours} h`;
+  }
+  if (days === 1) return 'Hier';
+  if (days < 7)  return `Il y a ${days} jours`;
+  return new Date(ts).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: days > 365 ? 'numeric' : undefined });
+}
+
+function _fullDate(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleString('fr-FR', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+// ════════════════════════════════════════════════════════
+//  CLASSEMENT — rendu
 // ════════════════════════════════════════════════════════
 async function loadLeaderboard() {
-  const listEl = $('leaderboard-list');
-  listEl.innerHTML = '<div class="rooms-loading">⏳ Chargement…</div>';
-
-  // Stats perso (si connecté)
+  const listEl   = $('leaderboard-list');
   const authUser = (typeof authGetCurrentUser !== 'undefined') ? authGetCurrentUser() : null;
+
+  // ── Stats personnelles ───────────────────────────────
   const myStatsEl = $('lb-my-stats');
   if (authUser) {
     myStatsEl.classList.remove('hidden');
+    // Avatar
     const wrap = $('lb-my-avatar');
     wrap.innerHTML = '';
     if (authUser.photoURL) {
@@ -611,85 +661,229 @@ async function loadLeaderboard() {
       wrap.textContent = authUser.avatar || '🎮';
     }
     $('lb-my-name').textContent = authUser.displayName || 'Joueur';
-    const s = authUser.stats || {};
-    $('lb-my-wins').textContent  = `${s.gamesWon    || 0} V`;
-    $('lb-my-games').textContent = `${s.gamesPlayed  || 0} parties`;
-    $('lb-my-words').textContent = `${s.wordsFound   || 0} mots`;
+
+    // Provider badge
+    const prov = authUser.provider;
+    $('lb-my-provider').innerHTML = prov === 'google'  ? '<span class="lb-provider-badge lb-provider-google">🔵 Google</span>'
+                                  : prov === 'discord' ? '<span class="lb-provider-badge lb-provider-discord">🟣 Discord</span>'
+                                  : '';
+
+    // Stat cards
+    const s       = authUser.stats || {};
+    const played  = s.gamesPlayed  || 0;
+    const won     = s.gamesWon     || 0;
+    const words   = s.wordsFound   || 0;
+    const pct     = played ? Math.round((won / played) * 100) : 0;
+    const avgW    = played ? Math.round(words / played)       : 0;
+
+    $('lb-sc-wins').textContent    = won;
+    $('lb-sc-games').textContent   = played;
+    $('lb-sc-words').textContent   = words >= 1000 ? (words / 1000).toFixed(1) + 'k' : words;
+    $('lb-sc-winrate').textContent = played ? `${pct}%` : '—';
+
+    // Barre winrate
+    $('lb-winrate-bar').style.width  = `${pct}%`;
+    $('lb-winrate-label').textContent = `${won} V / ${played} partie${played > 1 ? 's' : ''}`;
+
+    // Badges séries
+    const streakBadges  = $('lb-streak-badges');
+    const curStreak     = s.currentStreak || 0;
+    const bestStreak    = s.bestStreak    || 0;
+    if (played > 0) {
+      streakBadges.classList.remove('hidden');
+      $('lb-streak-current').textContent = curStreak  > 0
+        ? `🔥 Série actuelle : ${curStreak}`
+        : '💤 Pas de série en cours';
+      $('lb-streak-best').textContent    = `⭐ Meilleure série : ${bestStreak}`;
+      $('lb-avg-words').textContent      = `📝 ${avgW} mots / partie`;
+    } else {
+      streakBadges.classList.add('hidden');
+    }
   } else {
     myStatsEl.classList.add('hidden');
   }
 
-  // Classement global
+  // ── Liste classement ──────────────────────────────────
+  listEl.innerHTML = '<div class="rooms-loading">⏳ Chargement…</div>';
   try {
     if (typeof authLoadLeaderboard === 'undefined') {
       listEl.innerHTML = '<div class="lb-empty">🔒 Connexion requise pour voir le classement.</div>';
       return;
     }
-    const entries = await authLoadLeaderboard(15);
+    const entries = await authLoadLeaderboard(20);
     if (!entries.length) {
       listEl.innerHTML = '<div class="lb-empty">😴 Aucun joueur classé pour l\'instant.<br>Soyez le premier !</div>';
       return;
     }
-    const ranks = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+
+    // Trouver mon rang
+    const myRankBadge = $('lb-my-rank-badge');
+    let myRank = -1;
+    if (authUser) {
+      myRank = entries.findIndex(e => e.uid === authUser.uid);
+      if (myRank >= 0) {
+        myRankBadge.textContent = `#${myRank + 1} mondial`;
+        myRankBadge.classList.remove('hidden');
+      } else {
+        myRankBadge.classList.add('hidden');
+      }
+    }
+
+    const MEDALS = ['🥇', '🥈', '🥉'];
     listEl.innerHTML = '';
+
     entries.forEach((entry, i) => {
-      const isMe = authUser && entry.uid === authUser.uid;
-      const row  = document.createElement('div');
-      row.className = 'lb-row' + (isMe ? ' is-me' : '');
+      const isMe   = authUser && entry.uid === authUser.uid;
+      const row    = document.createElement('div');
+      const podium = i < 3 ? ` lb-podium-${i + 1}` : '';
+      row.className = `lb-row${podium}${isMe ? ' is-me' : ''}`;
 
       const avatarHtml = entry.photoURL
-        ? `<img src="${escapeHtml(entry.photoURL)}" alt="" onerror="this.parentElement.textContent='${escapeHtml(entry.avatar||'🎮')}'">`
+        ? `<img src="${escapeHtml(entry.photoURL)}" alt=""
+               onerror="this.parentElement.textContent='${escapeHtml(entry.avatar || '🎮')}'">` 
         : escapeHtml(entry.avatar || '🎮');
-      const providerLabel = entry.provider === 'google' ? '🔵 Google' : entry.provider === 'discord' ? '🟣 Discord' : '';
-      const pct = entry.gamesPlayed ? Math.round((entry.gamesWon / entry.gamesPlayed) * 100) : 0;
+
+      const provIcon  = entry.provider === 'google'  ? '🔵'
+                      : entry.provider === 'discord' ? '🟣' : '';
+      const pct       = entry.gamesPlayed ? Math.round((entry.gamesWon / entry.gamesPlayed) * 100) : 0;
+      const avgW      = entry.gamesPlayed ? Math.round((entry.wordsFound || 0) / entry.gamesPlayed) : 0;
+      const rankLabel = i < 3 ? MEDALS[i] : `<span class="lb-rank-num">${i + 1}</span>`;
+      const bestS     = entry.bestStreak ? `<span class="lb-row-streak" title="Meilleure série">⭐${entry.bestStreak}</span>` : '';
+      const youBadge  = isMe ? '<span class="lb-you-badge">Vous</span>' : '';
 
       row.innerHTML = `
-        <div class="lb-rank">${ranks[i] || (i + 1)}</div>
+        <div class="lb-rank">${rankLabel}</div>
         <div class="lb-avatar">${avatarHtml}</div>
         <div class="lb-name-col">
-          <div class="lb-name">${escapeHtml(entry.displayName || 'Joueur')}</div>
-          ${providerLabel ? `<div class="lb-provider">${providerLabel}</div>` : ''}
+          <div class="lb-name">${escapeHtml(entry.displayName || 'Joueur')} ${youBadge}</div>
+          <div class="lb-name-sub">${provIcon ? `${provIcon} ` : ''}${entry.gamesPlayed || 0} partie${(entry.gamesPlayed || 0) > 1 ? 's' : ''} · ${avgW} mots/p. ${bestS}</div>
+          <div class="lb-winrate-mini-track">
+            <div class="lb-winrate-mini-fill" style="width:${pct}%"></div>
+          </div>
         </div>
         <div class="lb-stats-col">
           <div class="lb-wins">${entry.gamesWon} V</div>
-          <div class="lb-detail">${entry.gamesPlayed} parties · ${pct}%</div>
+          <div class="lb-detail">${pct}% winrate</div>
+          <div class="lb-detail-words">${(entry.wordsFound || 0) >= 1000 ? ((entry.wordsFound||0)/1000).toFixed(1)+'k' : (entry.wordsFound||0)} mots</div>
         </div>`;
       listEl.appendChild(row);
     });
+
   } catch (e) {
     listEl.innerHTML = `<div class="lb-empty">❌ ${escapeHtml(e.message)}</div>`;
   }
 }
 
-async function loadHistory() {
-  const section = $('history-section');
-  const list    = $('history-list');
-  section.classList.remove('hidden');
-  list.innerHTML = '<div class="rooms-loading">⏳ Chargement…</div>';
+// ════════════════════════════════════════════════════════
+//  HISTORIQUE — état pagination
+// ════════════════════════════════════════════════════════
+let _historyOldestDate = null;   // date de la plus ancienne entrée chargée
+let _historyAllLoaded  = false;  // true quand Firebase n'a plus rien
+
+async function loadHistory(reset = false) {
+  const authUser = (typeof authGetCurrentUser !== 'undefined') ? authGetCurrentUser() : null;
+  const guestEl  = $('lb-history-guest');
+  const listEl   = $('history-list');
+  const loadMore = $('btn-load-more-history');
+  const summary  = $('lb-history-summary');
+
+  if (!authUser) {
+    guestEl.classList.remove('hidden');
+    listEl.innerHTML = '';
+    loadMore.classList.add('hidden');
+    summary.classList.add('hidden');
+    return;
+  }
+  guestEl.classList.add('hidden');
+
+  if (reset) {
+    listEl.innerHTML = '<div class="rooms-loading">⏳ Chargement…</div>';
+    _historyOldestDate = null;
+    _historyAllLoaded  = false;
+    loadMore.classList.add('hidden');
+    summary.classList.add('hidden');
+  }
 
   try {
-    const entries = await authLoadHistory(15);
-    if (!entries.length) {
-      list.innerHTML = '<div class="lb-empty">Aucune partie enregistrée.</div>';
+    const PAGE = 20;
+    const entries = await authLoadHistory(PAGE, _historyOldestDate);
+
+    if (reset) listEl.innerHTML = '';
+
+    if (!entries.length && reset) {
+      listEl.innerHTML = '<div class="lb-empty">Aucune partie enregistrée.<br>Jouez en ligne pour remplir votre historique !</div>';
+      loadMore.classList.add('hidden');
       return;
     }
-    list.innerHTML = '';
+
+    if (entries.length > 0) {
+      _historyOldestDate = entries[entries.length - 1].date;
+    }
+    _historyAllLoaded = entries.length < PAGE;
+
+    // ── Résumé rapide (nb victoires parmi les entrées chargées) ──
+    if (reset && entries.length) {
+      const allEntries = entries;
+      const totalLoaded = allEntries.length;
+      const winsLoaded  = allEntries.filter(e => e.won).length;
+      const streak = _computeCurrentStreak(allEntries);
+      const authStats = authUser.stats || {};
+      $('lb-hs-total').textContent    = `${authStats.gamesPlayed || 0} parties jouées`;
+      $('lb-hs-winstreak').textContent = `🔥 Série: ${authStats.currentStreak || 0}`;
+      $('lb-hs-streak').textContent   = `⭐ Meilleure: ${authStats.bestStreak || 0}`;
+      summary.classList.remove('hidden');
+    }
+
+    // ── Rendu des entrées ──
     entries.forEach(e => {
-      const row  = document.createElement('div');
-      row.className = 'hist-row';
-      const date = e.date ? new Date(e.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+      const won   = !!e.won;
+      const row   = document.createElement('div');
+      row.className = `hist-row${won ? ' hist-row--win' : ' hist-row--loss'}`;
+
+      const relDate  = _relativeDate(e.date);
+      const fullDate = _fullDate(e.date);
+      const pos      = e.position || 0;
+      const posLabel = pos === 1 ? '🥇 1ᵉʳ' : pos === 2 ? '🥈 2ᵉ' : pos === 3 ? '🥉 3ᵉ' : pos > 0 ? `#${pos}` : '—';
+      const players  = e.playerCount || 2;
+      const words    = e.wordsFound  || 0;
+
       row.innerHTML = `
-        <div class="hist-result">${e.won ? '🏆' : '💥'}</div>
-        <div class="hist-info">
-          <div class="hist-date">${date}</div>
-          <div class="hist-detail">${e.wordsFound || 0} mot${(e.wordsFound||0)>1?'s':''} · ${e.playerCount || 2} joueurs</div>
+        <div class="hist-result-wrap">
+          <span class="hist-result-icon">${won ? '🏆' : '💥'}</span>
+          <span class="hist-result-label ${won ? 'hist-label--win' : 'hist-label--loss'}">${won ? 'Victoire' : 'Éliminé'}</span>
         </div>
-        <div class="hist-pos">${e.position ? `#${e.position}` : ''}</div>`;
-      list.appendChild(row);
+        <div class="hist-info">
+          <div class="hist-date-line" title="${fullDate}">${relDate}</div>
+          <div class="hist-stats-line">
+            <span class="hist-stat">🎯 ${posLabel}</span>
+            <span class="hist-stat">👥 ${players} joueur${players > 1 ? 's' : ''}</span>
+            <span class="hist-stat">💬 ${words} mot${words > 1 ? 's' : ''}</span>
+          </div>
+        </div>`;
+      listEl.appendChild(row);
     });
+
+    loadMore.classList.toggle('hidden', _historyAllLoaded);
+
   } catch (e) {
-    list.innerHTML = `<div class="lb-empty">❌ ${escapeHtml(e.message)}</div>`;
+    listEl.innerHTML = `<div class="lb-empty">❌ ${escapeHtml(e.message)}</div>`;
+    loadMore.classList.add('hidden');
   }
+}
+
+async function loadHistoryMore() {
+  if (_historyAllLoaded) return;
+  await loadHistory(false);
+}
+
+function _computeCurrentStreak(entries) {
+  // entries triées par date décroissante
+  let streak = 0;
+  for (const e of entries) {
+    if (e.won) streak++;
+    else break;
+  }
+  return streak;
 }
 
 function sendLobbyChat() {

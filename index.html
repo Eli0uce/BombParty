@@ -230,41 +230,101 @@
      ÉCRAN 4b — CLASSEMENT
 ══════════════════════════════════════════════════════ -->
 <section id="screen-leaderboard" class="screen">
-  <div class="subscreen-container">
+  <div class="lb-container">
+
+    <!-- Header -->
     <div class="subscreen-header">
       <button class="btn btn-ghost btn-sm btn-back" data-target="menu">← Retour</button>
       <h2>🏆 Classement</h2>
-      <button id="btn-refresh-leaderboard" class="btn btn-ghost btn-sm">↻</button>
+      <button id="btn-refresh-leaderboard" class="btn btn-ghost btn-sm" title="Actualiser">↻</button>
     </div>
 
-    <!-- Stats personnelles (si connecté) -->
+    <!-- ── Stats personnelles (si connecté) ── -->
     <div id="lb-my-stats" class="lb-my-stats hidden">
-      <div class="lb-my-stats-inner">
+
+      <!-- Identité + rang -->
+      <div class="lb-my-header">
         <div id="lb-my-avatar" class="lb-my-avatar">🎮</div>
         <div class="lb-my-info">
           <div id="lb-my-name" class="lb-my-name">—</div>
-          <div class="lb-my-numbers">
-            <span id="lb-my-wins"  class="lb-stat-badge wins">0 V</span>
-            <span id="lb-my-games" class="lb-stat-badge">0 parties</span>
-            <span id="lb-my-words" class="lb-stat-badge">0 mots</span>
-          </div>
+          <div id="lb-my-provider" class="lb-my-provider"></div>
         </div>
-        <button id="btn-show-history" class="btn btn-ghost btn-sm">📜 Historique</button>
+        <div id="lb-my-rank-badge" class="lb-my-rank-badge hidden">—</div>
+      </div>
+
+      <!-- 4 cartes stats -->
+      <div class="lb-stat-cards">
+        <div class="lb-stat-card lb-stat-card--accent">
+          <span class="lb-stat-icon">🏆</span>
+          <span id="lb-sc-wins"    class="lb-stat-value">0</span>
+          <span class="lb-stat-label">Victoires</span>
+        </div>
+        <div class="lb-stat-card">
+          <span class="lb-stat-icon">🎮</span>
+          <span id="lb-sc-games"   class="lb-stat-value">0</span>
+          <span class="lb-stat-label">Parties</span>
+        </div>
+        <div class="lb-stat-card">
+          <span class="lb-stat-icon">💬</span>
+          <span id="lb-sc-words"   class="lb-stat-value">0</span>
+          <span class="lb-stat-label">Mots</span>
+        </div>
+        <div class="lb-stat-card">
+          <span class="lb-stat-icon">📊</span>
+          <span id="lb-sc-winrate" class="lb-stat-value">—</span>
+          <span class="lb-stat-label">Taux V.</span>
+        </div>
+      </div>
+
+      <!-- Barre taux de victoire -->
+      <div class="lb-winrate-bar-wrap">
+        <div class="lb-winrate-bar-track">
+          <div id="lb-winrate-bar" class="lb-winrate-bar-fill" style="width:0%"></div>
+        </div>
+        <span id="lb-winrate-label" class="lb-winrate-label">0 V / 0 parties</span>
+      </div>
+
+      <!-- Badges séries & moyennes -->
+      <div id="lb-streak-badges" class="lb-streak-badges hidden">
+        <span id="lb-streak-current" class="lb-streak-badge lb-streak-fire"></span>
+        <span id="lb-streak-best"    class="lb-streak-badge lb-streak-gold"></span>
+        <span id="lb-avg-words"      class="lb-streak-badge lb-streak-blue"></span>
+      </div>
+
+    </div><!-- /lb-my-stats -->
+
+    <!-- ── Onglets ── -->
+    <div class="lb-tabs" id="lb-tabs">
+      <button class="lb-tab lb-tab--active" data-tab="ranking">🌍 Top joueurs</button>
+      <button class="lb-tab" data-tab="history">📜 Historique</button>
+    </div>
+
+    <!-- ── Panel Classement ── -->
+    <div id="lb-panel-ranking" class="lb-panel">
+      <div id="leaderboard-list" class="leaderboard-list">
+        <div class="rooms-loading">⏳ Chargement…</div>
       </div>
     </div>
 
-    <!-- Classement mondial -->
-    <h3 class="lb-section-title">🌍 Top joueurs</h3>
-    <div id="leaderboard-list" class="leaderboard-list">
-      <div class="rooms-loading">⏳ Chargement…</div>
+    <!-- ── Panel Historique ── -->
+    <div id="lb-panel-history" class="lb-panel lb-panel--hidden">
+      <div id="lb-history-guest" class="lb-empty hidden">
+        🔒 Connectez-vous pour voir votre historique.
+      </div>
+      <div id="lb-history-summary" class="lb-history-summary hidden">
+        <span id="lb-hs-streak"></span>
+        <span id="lb-hs-winstreak"></span>
+        <span id="lb-hs-total"></span>
+      </div>
+      <div id="history-list" class="history-list"></div>
+      <div class="lb-load-more-wrap">
+        <button id="btn-load-more-history" class="btn btn-ghost btn-sm lb-load-more hidden">
+          ⬇ Charger plus
+        </button>
+      </div>
     </div>
 
-    <!-- Historique des parties -->
-    <div id="history-section" class="history-section hidden">
-      <h3 class="lb-section-title">📜 Mes dernières parties</h3>
-      <div id="history-list" class="history-list"></div>
-    </div>
-  </div>
+  </div><!-- /lb-container -->
 </section>
 
 <!-- ══════════════════════════════════════════════════════

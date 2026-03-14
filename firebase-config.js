@@ -42,11 +42,16 @@ const DISCORD_AUTH_PEPPER = 'bombparty_salt_v1_2024';
     "publicRooms":{ ".read": true, ".write": true },
     "userProfiles":{
       ".read": true,
-      "$uid": { ".write": "auth !== null && auth.uid === $uid" }
+      "$uid": {
+        ".write": "auth !== null && auth.uid === $uid",
+        "history": {
+          ".indexOn": ["date"]
+        }
+      }
     },
     "leaderboard": {
       ".read": true,
-      ".indexOn": ["gamesWon"],
+      ".indexOn": ["gamesWon", "wordsFound", "bestStreak"],
       "$uid": { ".write": "auth !== null && auth.uid === $uid" }
     }
   }

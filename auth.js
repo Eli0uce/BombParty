@@ -235,10 +235,21 @@ async function authSaveGameResult({ won, position, wordsFound, playerCount }) {
   const histRef  = firebase.database().ref(`userProfiles/${user.uid}/history`).push();
 
   const snap  = await statsRef.get();
-  const stats = snap.val() || { gamesPlayed: 0, gamesWon: 0, wordsFound: 0 };
+  const stats = snap.val() || {
+    gamesPlayed: 0, gamesWon: 0, wordsFound: 0,
+    currentStreak: 0, bestStreak: 0,
+  };
+
   stats.gamesPlayed = (stats.gamesPlayed || 0) + 1;
-  if (won) stats.gamesWon = (stats.gamesWon || 0) + 1;
   stats.wordsFound  = (stats.wordsFound  || 0) + (wordsFound || 0);
+
+  if (won) {
+    stats.gamesWon      = (stats.gamesWon      || 0) + 1;
+    stats.currentStreak = (stats.currentStreak || 0) + 1;
+    stats.bestStreak    = Math.max(stats.bestStreak || 0, stats.currentStreak);
+  } else {
+    stats.currentStreak = 0;
+  }
 
   await statsRef.set(stats);
 
@@ -252,14 +263,15 @@ async function authSaveGameResult({ won, position, wordsFound, playerCount }) {
 
   // Mise à jour du classement public
   await firebase.database().ref(`leaderboard/${user.uid}`).set({
-    displayName: String(user.displayName || 'Joueur').slice(0, 18),
-    photoURL:    user.photoURL    || null,
-    avatar:      user.avatar      || '🎮',
-    provider:    user.provider    || 'email',
-    gamesWon:    stats.gamesWon,
-    gamesPlayed: stats.gamesPlayed,
-    wordsFound:  stats.wordsFound,
-    updatedAt:   firebase.database.ServerValue.TIMESTAMP,
+    displayName:    String(user.displayName || 'Joueur').slice(0, 18),
+    photoURL:       user.photoURL    || null,
+    avatar:         user.avatar      || '🎮',
+    provider:       user.provider    || 'email',
+    gamesWon:       stats.gamesWon,
+    gamesPlayed:    stats.gamesPlayed,
+    wordsFound:     stats.wordsFound,
+    bestStreak:     stats.bestStreak  || 0,
+    updatedAt:      firebase.database.ServerValue.TIMESTAMP,
   });
 
   // Mettre à jour les stats en mémoire + notifier les listeners
@@ -270,7 +282,7 @@ async function authSaveGameResult({ won, position, wordsFound, playerCount }) {
 // ════════════════════════════════════════════════════════
 //  CLASSEMENT
 // ════════════════════════════════════════════════════════
-async function authLoadLeaderboard(limit = 15) {
+async function authLoadLeaderboard(limit = 20) {
   const snap = await firebase.database()
     .ref('leaderboard')
     .orderByChild('gamesWon')
@@ -279,20 +291,30 @@ async function authLoadLeaderboard(limit = 15) {
   if (!snap.exists()) return [];
   const entries = [];
   snap.forEach(c => entries.push({ uid: c.key, ...c.val() }));
-  return entries.sort((a, b) => (b.gamesWon - a.gamesWon) || (b.wordsFound - a.wordsFound));
+  return entries.sort((a, b) =>
+    (b.gamesWon - a.gamesWon) ||
+    (b.gamesPlayed ? (b.gamesWon / b.gamesPlayed) : 0) - (a.gamesPlayed ? (a.gamesWon / a.gamesPlayed) : 0) ||
+    (b.wordsFound - a.wordsFound)
+  );
 }
 
 // ════════════════════════════════════════════════════════
-//  HISTORIQUE
+//  HISTORIQUE (avec pagination)
 // ════════════════════════════════════════════════════════
-async function authLoadHistory(limit = 15) {
+async function authLoadHistory(limit = 20, beforeDate = null) {
   const user = _currentUser;
   if (!user) return [];
-  const snap = await firebase.database()
+
+  let ref = firebase.database()
     .ref(`userProfiles/${user.uid}/history`)
-    .orderByChild('date')
-    .limitToLast(limit)
-    .get();
+    .orderByChild('date');
+
+  // Pagination : charger les entrées antérieures à beforeDate
+  ref = beforeDate !== null
+    ? ref.endAt(beforeDate - 1).limitToLast(limit)
+    : ref.limitToLast(limit);
+
+  const snap = await ref.get();
   if (!snap.exists()) return [];
   const entries = [];
   snap.forEach(c => entries.push({ id: c.key, ...c.val() }));
