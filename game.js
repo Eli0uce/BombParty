@@ -401,7 +401,9 @@ function startLobbyListeners(code) {
   session.unsubscribers = [];
 
   const unsubPlayers = watchPlayers(code, players => renderLobbyPlayers(players, code));
-  const unsubChat    = watchChat(code, msgs => renderChat(lobbyChatMessages, msgs));
+  // Vider le chat avant d'initialiser (important après "rejouer")
+  lobbyChatMessages.innerHTML = '';
+  const unsubChat    = watchChat(code, msg => addChatMessage(lobbyChatMessages, msg));
 
   const unsubRoom = watchRoom(code, room => {
     if (!room) {
@@ -502,16 +504,14 @@ function sendGameChat() {
   });
 }
 
-function renderChat(container, msgs) {
-  container.innerHTML = '';
-  msgs.slice(-50).forEach(msg => {
-    const div = document.createElement('div');
-    div.className = 'chat-message';
-    div.innerHTML = `<span class="chat-message-author">${escapeHtml(msg.avatar)} ${escapeHtml(msg.author)}</span><span class="chat-message-text">${escapeHtml(msg.text)}</span>`;
-    container.appendChild(div);
-  });
-  // requestAnimationFrame garantit que le layout est recalculé avant le scroll
-  // (important quand le conteneur était masqué display:none au moment du rendu)
+// Ajoute un seul message au conteneur (pattern child_added)
+function addChatMessage(container, msg) {
+  const div = document.createElement('div');
+  div.className = 'chat-message';
+  div.innerHTML = `<span class="chat-message-author">${escapeHtml(msg.avatar)} ${escapeHtml(msg.author)}</span><span class="chat-message-text">${escapeHtml(msg.text)}</span>`;
+  container.appendChild(div);
+  // Limiter à 50 messages visibles
+  while (container.children.length > 50) container.removeChild(container.firstChild);
   requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
 }
 
@@ -542,7 +542,8 @@ function startOnlineGame(code) {
     hostNextTurn();
 
     // L'hôte écoute aussi le chat (il pouvait envoyer mais pas recevoir avant)
-    const unsubChatGame = watchChat(code, msgs => renderChat(gameChatMessages, msgs));
+    gameChatMessages.innerHTML = '';
+    const unsubChatGame = watchChat(code, msg => addChatMessage(gameChatMessages, msg));
     // Écoute les mots soumis par les clients
     const unsubWord = watchPendingWord(code, pending => {
       if (!pending) return;
@@ -556,7 +557,8 @@ function startOnlineGame(code) {
   } else {
     // Les clients observent l'état du jeu et le chat
     const unsubGS       = watchGameState(code, gs => { if (!gs) return; applyRemoteGameState(gs); });
-    const unsubChatGame = watchChat(code, msgs => renderChat(gameChatMessages, msgs));
+    gameChatMessages.innerHTML = '';
+    const unsubChatGame = watchChat(code, msg => addChatMessage(gameChatMessages, msg));
     session.unsubscribers.push(unsubGS, unsubChatGame);
   }
 }

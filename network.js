@@ -275,14 +275,13 @@ function watchPendingWord(code, cb) {
 
 function watchChat(code, cb) {
   const r = ref(`rooms/${code}/chat`);
-  const handler = snap => {
-    const msgs = [];
-    snap.forEach(c => msgs.push({ id: c.key, ...c.val() }));
-    cb(msgs);
-  };
-  r.on('value', handler);
-  _activeListeners.push({ ref: r, event: 'value', handler });
-  return () => r.off('value', handler);
+  // child_added : se déclenche une fois par message existant au démarrage,
+  // puis une fois à chaque nouveau message — évite le problème d'interférence
+  // entre le listener 'value' parent (watchRoom) et le listener 'value' enfant.
+  const handler = snap => cb({ id: snap.key, ...snap.val() });
+  r.on('child_added', handler);
+  _activeListeners.push({ ref: r, event: 'child_added', handler });
+  return () => r.off('child_added', handler);
 }
 
 function stopAllListeners() {
