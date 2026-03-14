@@ -83,8 +83,9 @@ async function createRoom(hostPlayer, settings) {
     }
   }
 
-  // Présence : marquer hors-ligne si déconnecté
+  // Présence : marquer hors-ligne et retirer l'entrée si déconnecté
   ref(`rooms/${code}/players/${hostPlayer.id}/online`).onDisconnect().set(false);
+  ref(`rooms/${code}/players/${hostPlayer.id}`).onDisconnect().remove();
 
   return code;
 }
@@ -105,6 +106,7 @@ async function joinRoom(code, player) {
   });
 
   ref(`rooms/${code}/players/${player.id}/online`).onDisconnect().set(false);
+  ref(`rooms/${code}/players/${player.id}`).onDisconnect().remove();
 
   return room;
 }
@@ -127,6 +129,14 @@ async function leaveRoom(code, playerId, isHost) {
     }
   }
   await ref(`rooms/${code}/players/${playerId}`).remove();
+
+  // Vérifier si la room est maintenant vide → la supprimer
+  const remainSnap = await ref(`rooms/${code}/players`).get();
+  const remain = remainSnap.val() || {};
+  if (Object.keys(remain).length === 0) {
+    await ref(`publicRooms/${code}`).remove().catch(() => {});
+    await ref(`rooms/${code}`).remove();
+  }
 }
 
 async function listPublicRooms() {
@@ -148,18 +158,27 @@ async function listPublicRooms() {
     checks.push(
       ref(`rooms/${child.key}/meta`).get().then(metaSnap => {
         if (!metaSnap.exists()) {
-          console.log('[BombParty] room', child.key, '→ meta introuvable');
+          // Room supprimée → nettoyer l'entrée orpheline
+          console.log('[BombParty] room', child.key, '→ meta introuvable, nettoyage orphelin');
+          ref(`publicRooms/${child.key}`).remove().catch(() => {});
           return;
         }
         const meta = metaSnap.val();
         console.log('[BombParty] room', child.key, '→ status:', meta.status);
         if (meta.status !== 'lobby') return;
         return ref(`rooms/${child.key}/players`).get().then(pSnap => {
+          const playerCount = pSnap.exists() ? Object.keys(pSnap.val()).length : 0;
+          if (playerCount === 0) {
+            // Room vide → nettoyer
+            ref(`publicRooms/${child.key}`).remove().catch(() => {});
+            ref(`rooms/${child.key}`).remove().catch(() => {});
+            return;
+          }
           rooms.push({
             code:        child.key,
             hostName:    meta.hostName || idx.hostName,
             maxLives:    meta.maxLives || idx.maxLives,
-            playerCount: pSnap.exists() ? Object.keys(pSnap.val()).length : 1,
+            playerCount,
             createdAt:   meta.createdAt || idx.createdAt || 0,
           });
         });
@@ -292,15 +311,50 @@ function stopAllListeners() {
 // ─── CLEANUP OLD ROOMS ───────────────────────────────────
 async function cleanOldRooms() {
   try {
-    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+    const twoHoursAgo  = Date.now() - 2 * 60 * 60 * 1000;
+    const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
+
     const snap = await ref('rooms').get();
-    if (!snap.exists()) return;
     const toDelete = [];
-    snap.forEach(child => {
-      const r = child.val();
-      if (r.meta?.createdAt && r.meta.createdAt < twoHoursAgo) toDelete.push(child.key);
-    });
-    await Promise.all(toDelete.map(k => ref(`rooms/${k}`).remove()));
-  } catch (_) {}
+
+    if (snap.exists()) {
+      snap.forEach(child => {
+        const r = child.val();
+        const createdAt  = r.meta?.createdAt || 0;
+        const tooOld     = createdAt < twoHoursAgo;
+        const noPlayers  = !r.players || Object.keys(r.players).length === 0;
+        // Room abandonnée : tous les joueurs sont hors-ligne depuis >30 min
+        const allOffline = r.players
+          && Object.keys(r.players).length > 0
+          && Object.values(r.players).every(p => !p.online)
+          && createdAt < thirtyMinAgo;
+
+        if (tooOld || noPlayers || allOffline) toDelete.push(child.key);
+      });
+
+      await Promise.all(toDelete.map(async k => {
+        await ref(`publicRooms/${k}`).remove().catch(() => {});
+        await ref(`rooms/${k}`).remove().catch(() => {});
+      }));
+    }
+
+    // Nettoyer les entrées orphelines dans publicRooms
+    // (room supprimée mais son entrée publicRooms reste)
+    const pubSnap = await ref('publicRooms').get();
+    if (pubSnap.exists()) {
+      const orphans = [];
+      pubSnap.forEach(child => {
+        if (!snap.exists() || !snap.child(child.key).exists()) {
+          orphans.push(child.key);
+        }
+      });
+      await Promise.all(orphans.map(k => ref(`publicRooms/${k}`).remove().catch(() => {})));
+      if (orphans.length) console.log('[BombParty] cleanOldRooms: orphelins supprimés:', orphans);
+    }
+
+    if (toDelete.length) console.log('[BombParty] cleanOldRooms: rooms supprimées:', toDelete);
+  } catch (e) {
+    console.warn('[BombParty] cleanOldRooms error:', e.message);
+  }
 }
 
