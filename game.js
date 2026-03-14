@@ -362,7 +362,8 @@ async function loadPublicRooms() {
       publicRoomsList.appendChild(row);
     });
   } catch (e) {
-    publicRoomsList.innerHTML = '<div class="rooms-empty">❌ Erreur de chargement.</div>';
+    console.error('loadPublicRooms:', e);
+    publicRoomsList.innerHTML = `<div class="rooms-empty">❌ ${e?.message || 'Erreur de chargement.'}</div>`;
   }
 }
 

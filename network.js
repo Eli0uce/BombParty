@@ -64,9 +64,19 @@ async function createRoom(hostPlayer, settings) {
   };
   await ref(`rooms/${code}`).set(roomData);
 
+  // ── Index des rooms publiques (nœud séparé, lecture autorisée sans règle spéciale) ──
+  if (settings.isPublic) {
+    await ref(`publicRooms/${code}`).set({
+      hostName: hostPlayer.name,
+      maxLives: settings.maxLives,
+      createdAt: firebase.database.ServerValue.TIMESTAMP,
+    });
+    // Supprimer l'entrée si l'hôte se déconnecte
+    ref(`publicRooms/${code}`).onDisconnect().remove();
+  }
+
   // Présence : supprimer le joueur si déconnecté
-  const presenceRef = ref(`rooms/${code}/players/${hostPlayer.id}/online`);
-  presenceRef.onDisconnect().set(false);
+  ref(`rooms/${code}/players/${hostPlayer.id}/online`).onDisconnect().set(false);
 
   return code;
 }
@@ -93,7 +103,6 @@ async function joinRoom(code, player) {
 
 async function leaveRoom(code, playerId, isHost) {
   if (isHost) {
-    // L'hôte quitte → on cherche un autre joueur ou on ferme la room
     const snap = await ref(`rooms/${code}/players`).get();
     const players = snap.val() || {};
     const others = Object.entries(players).filter(([id]) => id !== playerId);
@@ -103,7 +112,8 @@ async function leaveRoom(code, playerId, isHost) {
       await ref(`rooms/${code}/meta/hostName`).set(newHostData.name);
       await ref(`rooms/${code}/players/${newHostId}/isHost`).set(true);
     } else {
-      // Personne → supprimer la room
+      // Personne → supprimer la room et l'index public
+      await ref(`publicRooms/${code}`).remove().catch(() => {});
       await ref(`rooms/${code}`).remove();
       return;
     }
@@ -112,23 +122,35 @@ async function leaveRoom(code, playerId, isHost) {
 }
 
 async function listPublicRooms() {
-  // On récupère toutes les rooms et on filtre côté client
-  // (orderByChild sur chemin imbriqué nécessite un index Firebase)
-  const snap = await ref('rooms').get();
-  if (!snap.exists()) return [];
+  // Lecture de l'index publicRooms (nœud dédié, pas besoin de lister rooms/)
+  const indexSnap = await ref('publicRooms').get();
+  if (!indexSnap.exists()) return [];
+
   const rooms = [];
-  snap.forEach(child => {
-    const r = child.val();
-    if (r.meta && r.meta.isPublic === true && r.meta.status === 'lobby') {
-      rooms.push({
-        code: child.key,
-        hostName: r.meta.hostName,
-        maxLives: r.meta.maxLives,
-        playerCount: Object.keys(r.players || {}).length,
-        createdAt: r.meta.createdAt || 0,
-      });
-    }
+  const checks = [];
+
+  indexSnap.forEach(child => {
+    const idx = child.val();
+    checks.push(
+      ref(`rooms/${child.key}/meta`).get().then(metaSnap => {
+        if (!metaSnap.exists()) return;
+        const meta = metaSnap.val();
+        if (meta.status !== 'lobby') return;
+        // Compter les joueurs
+        return ref(`rooms/${child.key}/players`).get().then(pSnap => {
+          rooms.push({
+            code:        child.key,
+            hostName:    meta.hostName || idx.hostName,
+            maxLives:    meta.maxLives || idx.maxLives,
+            playerCount: pSnap.exists() ? Object.keys(pSnap.val()).length : 1,
+            createdAt:   meta.createdAt || idx.createdAt || 0,
+          });
+        });
+      }).catch(() => {})
+    );
   });
+
+  await Promise.all(checks);
   return rooms.sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
 }
 
@@ -171,6 +193,10 @@ async function pushGameState(code, gameState) {
 
 async function updateRoomStatus(code, status) {
   await ref(`rooms/${code}/meta/status`).set(status);
+  // Retirer de l'index public dès que la partie n'est plus en lobby
+  if (status !== 'lobby') {
+    ref(`publicRooms/${code}`).remove().catch(() => {});
+  }
 }
 
 async function updatePlayerState(code, playerId, data) {
