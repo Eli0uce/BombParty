@@ -83,9 +83,10 @@ async function createRoom(hostPlayer, settings) {
     }
   }
 
-  // Présence : marquer hors-ligne et retirer l'entrée si déconnecté
+  // Présence : marquer hors-ligne si déconnecté
+  // ⚠️ PAS de onDisconnect().remove() — Firebase peut le déclencher lors d'un
+  //    reconnect initial, supprimant l'entrée alors que le joueur est encore là.
   ref(`rooms/${code}/players/${hostPlayer.id}/online`).onDisconnect().set(false);
-  ref(`rooms/${code}/players/${hostPlayer.id}`).onDisconnect().remove();
 
   return code;
 }
@@ -106,7 +107,6 @@ async function joinRoom(code, player) {
   });
 
   ref(`rooms/${code}/players/${player.id}/online`).onDisconnect().set(false);
-  ref(`rooms/${code}/players/${player.id}`).onDisconnect().remove();
 
   return room;
 }
@@ -167,9 +167,11 @@ async function listPublicRooms() {
         console.log('[BombParty] room', child.key, '→ status:', meta.status);
         if (meta.status !== 'lobby') return;
         return ref(`rooms/${child.key}/players`).get().then(pSnap => {
-          const playerCount = pSnap.exists() ? Object.keys(pSnap.val()).length : 0;
-          if (playerCount === 0) {
-            // Room vide → nettoyer
+          const players     = pSnap.val() || {};
+          // Ne compter que les joueurs EN LIGNE (online !== false)
+          const onlineCount = Object.values(players).filter(p => p.online !== false).length;
+          if (onlineCount === 0) {
+            // Plus personne de connecté → nettoyer
             ref(`publicRooms/${child.key}`).remove().catch(() => {});
             ref(`rooms/${child.key}`).remove().catch(() => {});
             return;
@@ -178,7 +180,7 @@ async function listPublicRooms() {
             code:        child.key,
             hostName:    meta.hostName || idx.hostName,
             maxLives:    meta.maxLives || idx.maxLives,
-            playerCount,
+            playerCount: onlineCount,
             createdAt:   meta.createdAt || idx.createdAt || 0,
           });
         });
@@ -311,8 +313,8 @@ function stopAllListeners() {
 // ─── CLEANUP OLD ROOMS ───────────────────────────────────
 async function cleanOldRooms() {
   try {
-    const twoHoursAgo  = Date.now() - 2 * 60 * 60 * 1000;
-    const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+    const tenMinAgo   = Date.now() - 10 * 60 * 1000;   // réduit de 30 → 10 min
 
     const snap = await ref('rooms').get();
     const toDelete = [];
@@ -323,11 +325,11 @@ async function cleanOldRooms() {
         const createdAt  = r.meta?.createdAt || 0;
         const tooOld     = createdAt < twoHoursAgo;
         const noPlayers  = !r.players || Object.keys(r.players).length === 0;
-        // Room abandonnée : tous les joueurs sont hors-ligne depuis >30 min
+        // Abandonné : tous hors-ligne ET room créée il y a >10 min
         const allOffline = r.players
           && Object.keys(r.players).length > 0
           && Object.values(r.players).every(p => !p.online)
-          && createdAt < thirtyMinAgo;
+          && createdAt < tenMinAgo;
 
         if (tooOld || noPlayers || allOffline) toDelete.push(child.key);
       });
@@ -339,7 +341,6 @@ async function cleanOldRooms() {
     }
 
     // Nettoyer les entrées orphelines dans publicRooms
-    // (room supprimée mais son entrée publicRooms reste)
     const pubSnap = await ref('publicRooms').get();
     if (pubSnap.exists()) {
       const orphans = [];
@@ -357,4 +358,3 @@ async function cleanOldRooms() {
     console.warn('[BombParty] cleanOldRooms error:', e.message);
   }
 }
-
