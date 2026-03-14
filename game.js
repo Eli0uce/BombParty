@@ -519,7 +519,7 @@ async function handleAuthGoogle() {
     $('btn-auth-google').disabled = true;
     await authSignInGoogle();
   } catch (e) {
-    if (e.code !== 'auth/popup-closed-by-user') _showAuthError(e.message);
+    if (e.message) _showAuthError(e.message);
   } finally {
     $('btn-auth-google').disabled = false;
   }

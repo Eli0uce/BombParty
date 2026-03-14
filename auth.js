@@ -38,12 +38,37 @@ function initAuth(onStateChange) {
 }
 
 // ════════════════════════════════════════════════════════
-//  CONNEXION GOOGLE
+//  MESSAGES D'ERREUR FIREBASE → LISIBLES
 // ════════════════════════════════════════════════════════
+function _friendlyAuthError(e) {
+  switch (e.code) {
+    case 'auth/unauthorized-domain':
+      return '🔒 Domaine non autorisé.\n'
+        + 'Dans la console Firebase → Authentication → Settings → Authorized domains,\n'
+        + `ajoutez : ${window.location.hostname}`;
+    case 'auth/popup-blocked':
+      return '🚫 Popup bloquée. Autorisez les popups pour ce site.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return null; // annulé volontairement, pas d'erreur à afficher
+    case 'auth/network-request-failed':
+      return '📶 Erreur réseau. Vérifiez votre connexion.';
+    case 'auth/too-many-requests':
+      return '⏳ Trop de tentatives. Réessayez dans quelques minutes.';
+    default:
+      return e.message || 'Erreur d\'authentification.';
+  }
+}
 async function authSignInGoogle() {
   const provider = new firebase.auth.GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });
-  await firebase.auth().signInWithPopup(provider);
+  try {
+    await firebase.auth().signInWithPopup(provider);
+  } catch (e) {
+    const msg = _friendlyAuthError(e);
+    if (msg) throw new Error(msg);
+    // si msg === null (annulé volontairement) → on ne throw pas
+  }
 }
 
 // ════════════════════════════════════════════════════════
