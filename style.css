@@ -503,9 +503,11 @@ select option { background: #1a1a2e; }
 .word-input::placeholder { color: var(--text-muted); font-weight: 400; font-size: 1rem; }
 .word-input:disabled { opacity: 0.4; cursor: not-allowed; }
 .feedback-msg { font-size: 0.9rem; font-weight: 600; min-height: 22px; transition: all 0.3s ease; text-align: center; }
-.feedback-msg.error   { color: var(--neon-red); }
-.feedback-msg.success { color: var(--neon-green); }
-.feedback-msg.info    { color: var(--accent3); }
+.feedback-msg.error    { color: var(--neon-red); }
+.feedback-msg.success  { color: var(--neon-green); }
+.feedback-msg.info     { color: var(--accent3); }
+.feedback-msg.checking { color: var(--accent2, #f0c040); animation: pulse-opacity 0.8s ease-in-out infinite; }
+@keyframes pulse-opacity { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
 
 /* Chat overlay */
 .chat-overlay {

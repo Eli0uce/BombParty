@@ -713,10 +713,49 @@ function triggerExplosionAnim() {
   explosionEl.style.animation = '';
 }
 
+// ─── DICTIONNAIRE ÉTENDU (API Wiktionnaire) ──────────────
+const _wordCache     = new Map(); // mot normalisé → true/false
+let   _isValidating  = false;
+
+/**
+ * Vérifie si un mot est valide en français :
+ *  1. Cache local (instantané)
+ *  2. Dictionnaire embarqué (instantané)
+ *  3. API Wiktionnaire FR (réseau, ~200-800 ms)
+ *  4. Si réseau KO → on accepte quand même (on ne pénalise pas pour coupure)
+ */
+async function isValidWord(word) {
+  if (_wordCache.has(word)) return _wordCache.get(word);
+
+  // ── Dictionnaire local (instantané) ──────────────────
+  if (WORDS.some(w => normalize(w) === word)) {
+    _wordCache.set(word, true);
+    return true;
+  }
+
+  // ── API Wiktionnaire FR ───────────────────────────────
+  try {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 5000); // timeout 5 s
+    const res = await fetch(
+      `https://fr.wiktionary.org/api/rest_v1/page/summary/${encodeURIComponent(word)}`,
+      { signal: controller.signal }
+    );
+    clearTimeout(tid);
+    const valid = res.ok; // 200 → existe, 404 → inexistant
+    _wordCache.set(word, valid);
+    return valid;
+  } catch {
+    // Réseau indisponible ou timeout → on accepte pour ne pas pénaliser
+    _wordCache.set(word, true);
+    return true;
+  }
+}
+
 // ─── VALIDATION MOT ──────────────────────────────────────
 function handleWordSubmit() {
   const raw = wordInput.value.trim();
-  if (!raw) return;
+  if (!raw || _isValidating) return;
 
   if (session.mode === 'online' && !session.isHost) {
     // Client → envoie le mot à Firebase, l'hôte valide
@@ -731,7 +770,8 @@ function handleWordSubmit() {
   processWord(raw);
 }
 
-function processWord(raw) {
+async function processWord(raw) {
+  if (_isValidating) return;
   const word     = normalize(raw);
   const syllable = normalize(state.currentSyllable);
 
@@ -743,9 +783,22 @@ function processWord(raw) {
     showWordError(`🔁 "${raw}" a déjà été utilisé !`);
     return;
   }
-  const found = WORDS.some(w => normalize(w) === word);
-  if (!found) {
+
+  // ── Vérification (potentiellement réseau) ────────────
+  _isValidating       = true;
+  wordInput.disabled  = true;
+  btnValidate.disabled = true;
+  showFeedback('🔍 Vérification…', 'checking');
+
+  const valid = await isValidWord(word);
+
+  _isValidating        = false;
+  wordInput.disabled   = false;
+  btnValidate.disabled = false;
+
+  if (!valid) {
     showWordError(`📖 "${raw}" n'est pas dans le dictionnaire`);
+    wordInput.select();
     return;
   }
 
