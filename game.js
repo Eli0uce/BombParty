@@ -1136,7 +1136,6 @@ async function handlePlayAgain() {
       await ref(`rooms/${session.roomCode}/gameState`).remove().catch(() => {});
       state.phase = 'setup';
       setupLobby(session.roomCode, {
-        difficulty: state.difficulty,
         maxLives: state.maxLives,
         isPublic: true,
       });
