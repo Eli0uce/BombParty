@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>💣 BombParty</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════
+     ÉCRAN 1 — MENU PRINCIPAL
+══════════════════════════════════════════════════════ -->
+<section id="screen-menu" class="screen active">
+  <div class="menu-bg-anim"></div>
+  <div class="menu-container">
+    <div class="logo">
+      <span class="bomb-icon">💣</span>
+      <h1>BombParty</h1>
+      <p class="subtitle">Le jeu des mots explosifs !</p>
+    </div>
+
+    <div class="menu-card">
+      <!-- Profil joueur -->
+      <div class="profile-section">
+        <div class="profile-avatar-picker" id="profile-avatar-display">🐱</div>
+        <input
+          type="text" id="profile-name" class="profile-name-input"
+          placeholder="Votre pseudo" maxlength="18" value="Joueur"
+        />
+      </div>
+      <div class="avatar-grid hidden" id="avatar-grid"></div>
+
+      <div class="menu-separator"></div>
+
+      <!-- Boutons d'action -->
+      <div class="menu-actions">
+        <button id="btn-online-create" class="btn btn-primary btn-large btn-menu-action">
+          <span class="btn-icon">🚀</span>
+          <div class="btn-text"><strong>Créer une partie</strong><small>Invitez vos amis avec un code</small></div>
+        </button>
+        <button id="btn-online-join" class="btn btn-secondary btn-large btn-menu-action">
+          <span class="btn-icon">🔑</span>
+          <div class="btn-text"><strong>Rejoindre une partie</strong><small>Entrez un code d'invitation</small></div>
+        </button>
+        <button id="btn-public-rooms" class="btn btn-secondary btn-large btn-menu-action">
+          <span class="btn-icon">🌍</span>
+          <div class="btn-text"><strong>Parties publiques</strong><small>Rejoignez une partie ouverte</small></div>
+        </button>
+        <button id="btn-local-play" class="btn btn-ghost btn-large btn-menu-action">
+          <span class="btn-icon">🎮</span>
+          <div class="btn-text"><strong>Jeu local</strong><small>Plusieurs joueurs, même écran</small></div>
+        </button>
+      </div>
+
+      <div id="firebase-warning" class="firebase-warning hidden">
+        ⚠️ Firebase non configuré — seul le jeu local est disponible.
+        <a href="https://github.com#readme" target="_blank">Comment configurer ?</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+     ÉCRAN 2 — CRÉER UNE PARTIE
+══════════════════════════════════════════════════════ -->
+<section id="screen-create" class="screen">
+  <div class="subscreen-container">
+    <div class="subscreen-header">
+      <button class="btn btn-ghost btn-sm btn-back" data-target="menu">← Retour</button>
+      <h2>🚀 Créer une partie</h2>
+      <div></div>
+    </div>
+    <div class="setup-card">
+      <div class="setup-section">
+        <h3>⚙️ Paramètres</h3>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <label for="create-difficulty">Difficulté</label>
+            <select id="create-difficulty">
+              <option value="easy">😊 Facile (12s)</option>
+              <option value="normal" selected>😐 Normal (8s)</option>
+              <option value="hard">😈 Difficile (5s)</option>
+              <option value="extreme">💀 Extrême (3s)</option>
+            </select>
+          </div>
+          <div class="setting-item">
+            <label for="create-lives">Vies par joueur</label>
+            <select id="create-lives">
+              <option value="1">1 vie</option>
+              <option value="2">2 vies</option>
+              <option value="3" selected>3 vies</option>
+              <option value="5">5 vies</option>
+            </select>
+          </div>
+          <div class="setting-item setting-item-full">
+            <label class="toggle-label">
+              <input type="checkbox" id="create-public" checked />
+              <span class="toggle-slider"></span>
+              <span>Partie publique (visible dans la liste)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <button id="btn-do-create" class="btn btn-primary btn-large">🚀 Créer et obtenir un code</button>
+      <div id="create-error" class="error-banner hidden"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+     ÉCRAN 3 — REJOINDRE AVEC UN CODE
+══════════════════════════════════════════════════════ -->
+<section id="screen-join" class="screen">
+  <div class="subscreen-container">
+    <div class="subscreen-header">
+      <button class="btn btn-ghost btn-sm btn-back" data-target="menu">← Retour</button>
+      <h2>🔑 Rejoindre une partie</h2>
+      <div></div>
+    </div>
+    <div class="setup-card">
+      <div class="setup-section">
+        <h3>Code d'invitation</h3>
+        <div class="code-input-wrapper">
+          <input
+            type="text" id="join-code-input" class="code-input"
+            placeholder="ABCD-1234" maxlength="9"
+            autocomplete="off" spellcheck="false"
+          />
+        </div>
+        <p class="hint-text">Demandez le code à l'hôte de la partie.</p>
+      </div>
+      <button id="btn-do-join" class="btn btn-primary btn-large">🔑 Rejoindre</button>
+      <div id="join-error" class="error-banner hidden"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+     ÉCRAN 4 — PARTIES PUBLIQUES
+══════════════════════════════════════════════════════ -->
+<section id="screen-public" class="screen">
+  <div class="subscreen-container">
+    <div class="subscreen-header">
+      <button class="btn btn-ghost btn-sm btn-back" data-target="menu">← Retour</button>
+      <h2>🌍 Parties publiques</h2>
+      <button id="btn-refresh-rooms" class="btn btn-ghost btn-sm">↻ Rafraîchir</button>
+    </div>
+    <div id="public-rooms-list" class="public-rooms-list">
+      <div class="rooms-loading">⏳ Chargement...</div>
+    </div>
+    <div id="public-error" class="error-banner hidden"></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+     ÉCRAN 5 — LOCAL
+══════════════════════════════════════════════════════ -->
+<section id="screen-local" class="screen">
+  <div class="subscreen-container">
+    <div class="subscreen-header">
+      <button class="btn btn-ghost btn-sm btn-back" data-target="menu">← Retour</button>
+      <h2>🎮 Jeu local</h2>
+      <div></div>
+    </div>
+    <div class="setup-card">
+      <div class="setup-section">
+        <h3>👥 Joueurs <span id="local-player-count-label">(2)</span></h3>
+        <div id="local-players-list" class="players-list"></div>
+        <div class="player-actions">
+          <button id="btn-local-add-player" class="btn btn-secondary">+ Ajouter un joueur</button>
+        </div>
+      </div>
+      <div class="setup-section">
+        <h3>⚙️ Paramètres</h3>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <label for="local-difficulty">Difficulté</label>
+            <select id="local-difficulty">
+              <option value="easy">😊 Facile (12s)</option>
+              <option value="normal" selected>😐 Normal (8s)</option>
+              <option value="hard">😈 Difficile (5s)</option>
+              <option value="extreme">💀 Extrême (3s)</option>
+            </select>
+          </div>
+          <div class="setting-item">
+            <label for="local-lives">Vies par joueur</label>
+            <select id="local-lives">
+              <option value="1">1 vie</option>
+              <option value="2">2 vies</option>
+              <option value="3" selected>3 vies</option>
+              <option value="5">5 vies</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <button id="btn-local-start" class="btn btn-primary btn-large">🚀 Lancer en local !</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+     ÉCRAN 6 — LOBBY
+══════════════════════════════════════════════════════ -->
+<section id="screen-lobby" class="screen">
+  <div class="subscreen-container lobby-container">
+    <div class="subscreen-header">
+      <button id="btn-lobby-leave" class="btn btn-ghost btn-sm">← Quitter</button>
+      <h2>🎯 Lobby</h2>
+      <div></div>
+    </div>
+
+    <div class="room-code-display">
+      <span class="room-code-label">Code d'invitation :</span>
+      <div class="room-code-box">
+        <span id="lobby-room-code" class="room-code-value">----</span>
+        <button id="btn-copy-code" class="btn btn-ghost btn-sm" title="Copier">📋</button>
+      </div>
+      <span class="room-code-hint">Partagez ce code avec vos amis !</span>
+    </div>
+
+    <div class="lobby-body">
+      <div class="lobby-left">
+        <div class="lobby-players-section">
+          <h3>Joueurs connectés <span id="lobby-player-count">(1/8)</span></h3>
+          <div id="lobby-players-list" class="lobby-players-list"></div>
+        </div>
+        <div class="lobby-settings" id="lobby-settings-display"></div>
+      </div>
+      <div class="lobby-right">
+        <div class="lobby-chat">
+          <h3>💬 Chat</h3>
+          <div id="lobby-chat-messages" class="chat-messages"></div>
+          <div class="chat-input-row">
+            <input type="text" id="lobby-chat-input" class="chat-input" placeholder="Envoyer un message..." maxlength="80" />
+            <button id="btn-lobby-send-chat" class="btn btn-secondary btn-sm">→</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="lobby-host-actions" class="lobby-actions hidden">
+      <p id="lobby-min-players-hint" class="hint-text"></p>
+      <button id="btn-lobby-start" class="btn btn-primary btn-large" disabled>🚀 Lancer la partie</button>
+    </div>
+    <div id="lobby-waiting-msg" class="waiting-msg hidden">
+      ⏳ En attente que l'hôte lance la partie…
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+     ÉCRAN 7 — JEU
+══════════════════════════════════════════════════════ -->
+<section id="screen-game" class="screen">
+  <div class="game-layout">
+    <header class="game-header">
+      <div class="header-left">
+        <span class="logo-small">💣 BombParty</span>
+        <span id="game-room-code-badge" class="room-badge hidden"></span>
+      </div>
+      <div class="header-center">
+        <div class="syllable-display">
+          <span class="syllable-label">Tapez un mot contenant :</span>
+          <span id="current-syllable" class="syllable">—</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <button id="btn-game-chat-toggle" class="btn btn-ghost btn-sm hidden">💬</button>
+        <button id="btn-quit" class="btn btn-ghost btn-sm">✕ Quitter</button>
+      </div>
+    </header>
+
+    <main class="game-main">
+      <aside class="players-panel left" id="panel-left"></aside>
+
+      <div class="bomb-area">
+        <div id="bomb-wrapper" class="bomb-wrapper">
+          <div id="bomb" class="bomb">
+            <div class="bomb-body">
+              <div class="bomb-highlight"></div>
+              <div class="bomb-fuse">
+                <div id="fuse-fire" class="fuse-fire">🔥</div>
+              </div>
+            </div>
+            <div id="bomb-timer" class="bomb-timer">8</div>
+          </div>
+          <div id="explosion" class="explosion hidden">💥</div>
+        </div>
+
+        <div class="input-area">
+          <div id="active-player-name" class="active-player-name">Joueur 1</div>
+          <div id="my-turn-badge" class="my-turn-badge hidden">⌨️ C'est votre tour !</div>
+          <div class="input-wrapper" id="input-wrapper">
+            <input
+              type="text" id="word-input" class="word-input"
+              placeholder="Tape un mot..." autocomplete="off" spellcheck="false"
+            />
+            <button id="btn-validate" class="btn btn-validate">✓</button>
+          </div>
+          <div id="feedback-msg" class="feedback-msg"></div>
+        </div>
+      </div>
+
+      <aside class="players-panel right" id="panel-right"></aside>
+    </main>
+
+    <div class="players-panel-mobile" id="panel-mobile"></div>
+
+    <!-- Chat overlay -->
+    <div id="game-chat-overlay" class="chat-overlay hidden">
+      <div class="chat-overlay-header">
+        <span>💬 Chat</span>
+        <button id="btn-game-chat-close" class="btn btn-ghost btn-sm">✕</button>
+      </div>
+      <div id="game-chat-messages" class="chat-messages"></div>
+      <div class="chat-input-row">
+        <input type="text" id="game-chat-input" class="chat-input" placeholder="Message..." maxlength="80" />
+        <button id="btn-game-send-chat" class="btn btn-secondary btn-sm">→</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+     ÉCRAN 8 — FIN DE PARTIE
+══════════════════════════════════════════════════════ -->
+<section id="screen-end" class="screen">
+  <div class="end-container">
+    <div id="confetti-container" class="confetti-container"></div>
+    <div class="end-card">
+      <div class="end-trophy">🏆</div>
+      <h1 class="end-title">Fin de partie !</h1>
+      <div id="winner-display" class="winner-display">
+        <span id="winner-emoji" class="winner-emoji">🎉</span>
+        <span id="winner-name"  class="winner-name">Joueur 1</span>
+        <span class="winner-subtitle">remporte la victoire !</span>
+      </div>
+      <div id="scoreboard" class="scoreboard"></div>
+      <div class="end-actions">
+        <button id="btn-play-again" class="btn btn-primary btn-large">🔄 Rejouer</button>
+        <button id="btn-back-menu"  class="btn btn-secondary btn-large">🏠 Menu</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Loading overlay -->
+<div id="loading-overlay" class="loading-overlay hidden">
+  <div class="loading-spinner">💣</div>
+  <div id="loading-text" class="loading-text">Connexion…</div>
+</div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="words.js"></script>
+<script src="network.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
+
