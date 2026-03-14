@@ -713,40 +713,48 @@ function triggerExplosionAnim() {
   explosionEl.style.animation = '';
 }
 
-// ─── DICTIONNAIRE ÉTENDU (API Wiktionnaire) ──────────────
-const _wordCache     = new Map(); // mot normalisé → true/false
-let   _isValidating  = false;
+// ─── DICTIONNAIRE ÉTENDU (hbenbel/French-Dictionary) ────
+// WORDS_SET  : Set de 116 000+ mots français — lookup O(1), défini dans words.js
+// WORDS      : tableau réduit pour la sélection des syllabes (itération rapide)
+
+const _wordCache    = new Map(); // mot normalisé → true/false
+let   _isValidating = false;
 
 /**
  * Vérifie si un mot est valide en français :
- *  1. Cache local (instantané)
- *  2. Dictionnaire embarqué (instantané)
- *  3. API Wiktionnaire FR (réseau, ~200-800 ms)
- *  4. Si réseau KO → on accepte quand même (on ne pénalise pas pour coupure)
+ *  1. Cache session (instantané)
+ *  2. WORDS_SET — dictionnaire complet 116k mots (instantané, O(1))
+ *  3. API Wiktionnaire FR (fallback réseau pour néologismes / mots rares)
  */
 async function isValidWord(word) {
   if (_wordCache.has(word)) return _wordCache.get(word);
 
-  // ── Dictionnaire local (instantané) ──────────────────
+  // ── Dictionnaire complet embarqué ────────────────────
+  if (typeof WORDS_SET !== 'undefined' && WORDS_SET.has(word)) {
+    _wordCache.set(word, true);
+    return true;
+  }
+
+  // ── Fallback : petit tableau WORDS ───────────────────
   if (WORDS.some(w => normalize(w) === word)) {
     _wordCache.set(word, true);
     return true;
   }
 
-  // ── API Wiktionnaire FR ───────────────────────────────
+  // ── Fallback réseau : API Wiktionnaire FR ─────────────
   try {
     const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), 5000); // timeout 5 s
+    const tid = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(
       `https://fr.wiktionary.org/api/rest_v1/page/summary/${encodeURIComponent(word)}`,
       { signal: controller.signal }
     );
     clearTimeout(tid);
-    const valid = res.ok; // 200 → existe, 404 → inexistant
+    const valid = res.ok;
     _wordCache.set(word, valid);
     return valid;
   } catch {
-    // Réseau indisponible ou timeout → on accepte pour ne pas pénaliser
+    // Réseau KO → on accepte (ne pas pénaliser pour une coupure)
     _wordCache.set(word, true);
     return true;
   }
