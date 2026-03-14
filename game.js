@@ -300,7 +300,12 @@ async function handleCreate() {
       maxLives: parseInt(createLives.value),
       isPublic: createPublic.checked,
     };
+    // ⚠️ Capturer me.id AVANT l'await : Firebase Auth peut le modifier
+    // pendant l'opération async (onAuthStateChanged déclenché entre-temps),
+    // ce qui causerait un mismatch entre l'ID stocké en room et me.id.
+    const myId = me.id;
     const code = await createRoom({ ...me }, settings);
+    me.id = myId;   // restaurer l'ID réellement utilisé lors de la création
     session.mode     = 'online';
     session.roomCode = code;
     session.isHost   = true;
@@ -327,7 +332,9 @@ async function handleJoin() {
   me.name = profileNameInput.value.trim() || 'Joueur';
   showLoading('Connexion à la partie…');
   try {
+    const myId = me.id; // ⚠️ capturer avant await (même raison que handleCreate)
     const room = await joinRoom(code, { ...me });
+    me.id = myId;       // restaurer
     session.mode     = 'online';
     session.roomCode = code;
     session.isHost   = false;
@@ -376,7 +383,9 @@ async function loadPublicRooms() {
         me.name = profileNameInput.value.trim() || 'Joueur';
         showLoading('Connexion…');
         try {
+          const myId = me.id; // ⚠️ capturer avant await (même raison que handleCreate)
           await joinRoom(r.code, { ...me });
+          me.id = myId;       // restaurer
           session.mode     = 'online';
           session.roomCode = r.code;
           session.isHost   = false;
@@ -1523,6 +1532,9 @@ function startLocalGame() {
 //  FIN DE PARTIE
 // ════════════════════════════════════════════════════════
 function endGame() {
+  // Guard : évite tout double-appel (ex : timer host + watchGameState)
+  if (state.phase === 'gameover') return;
+
   clearInterval(state.timerInterval);
   clearInterval(state.clientTimerInterval);
   state.phase = 'gameover';
@@ -1638,6 +1650,14 @@ function cleanupSession() {
   session.isPublic = false;
   state.phase = 'setup';
   gameChatOverlay.classList.add('hidden');
+
+  // Restaurer me.id vers l'UID Firebase (si connecté) pour la prochaine partie.
+  // Sans ça, un joueur connecté qui avait rejoint avec un ID temporaire garderait
+  // cet ID pour les parties suivantes.
+  if (typeof authGetCurrentUser !== 'undefined') {
+    const u = authGetCurrentUser();
+    if (u) me.id = u.uid;
+  }
 }
 
 // ─── CONFETTI ────────────────────────────────────────────
