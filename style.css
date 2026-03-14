@@ -29,7 +29,10 @@ body {
   background: var(--bg-dark);
   color: var(--text-primary);
   min-height: 100vh;
+  min-height: 100dvh; /* dynamic viewport height (notch/barre nav mobile) */
   overflow-x: hidden;
+  overscroll-behavior: none; /* bloque le pull-to-refresh */
+  -webkit-font-smoothing: antialiased;
   background-image:
     radial-gradient(ellipse at 20% 50%, rgba(15,52,96,0.3) 0%, transparent 50%),
     radial-gradient(ellipse at 80% 20%, rgba(233,69,96,0.15) 0%, transparent 50%);
@@ -53,6 +56,8 @@ body {
   gap: 8px; padding: 12px 24px; border: none; border-radius: var(--radius-sm);
   font-family: var(--font); font-size: 1rem; font-weight: 600;
   cursor: pointer; transition: all var(--transition); white-space: nowrap;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  min-height: 44px; /* zone tactile minimale */
 }
 .btn:active { transform: scale(0.96); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
@@ -615,37 +620,233 @@ select option { background: #1a1a2e; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
 /* ════════════════════════════════════════════════════════
-   RESPONSIVE
+   RESPONSIVE — Mobile first
 ════════════════════════════════════════════════════════ */
-@media (max-width: 900px) {
-  .game-main { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
-  .players-panel.left, .players-panel.right { display: none; }
-  .players-panel-mobile {
-    display: flex; flex-wrap: wrap; gap: 8px; padding: 12px;
-    border-top: 1px solid rgba(255,255,255,0.06);
-    justify-content: center; background: rgba(0,0,0,0.2);
-  }
-  .players-panel-mobile .player-card { min-width: 130px; flex: 1; }
-  .lobby-body { grid-template-columns: 1fr; }
-}
-@media (max-width: 600px) {
-  .logo h1 { font-size: 2.2rem; }
-  .bomb-icon { font-size: 3rem; }
-  .settings-grid { grid-template-columns: 1fr; }
-  .game-header { padding: 8px 12px; }
-  .syllable { font-size: 1.3rem; }
-  .logo-small { display: none; }
-  .setup-card { padding: 20px 16px; }
-  .end-card { padding: 28px 20px; }
-  .end-title { font-size: 1.6rem; }
-  .winner-name { font-size: 1.5rem; }
-  .avatar-grid { grid-template-columns: repeat(6, 1fr); }
-  .room-code-value { font-size: 1.8rem; }
-  .chat-overlay { width: calc(100vw - 32px); right: 16px; }
+
+/* ── Petit bureau / grande tablette (≤ 1100px) ────────── */
+@media (max-width: 1100px) {
+  .game-main { grid-template-columns: 180px 1fr 180px; }
+  .player-card-name { font-size: 0.82rem; }
 }
 
-@media (max-width: 400px) {
-  .bomb-area { padding: 12px; }
-  .word-input { font-size: 1rem; }
-  .players-panel-mobile .player-card { min-width: 100px; }
+/* ── Tablette (≤ 900px) ──────────────────────────────── */
+@media (max-width: 900px) {
+  /* Jeu : masquer les panels latéraux, afficher panel mobile */
+  .game-main {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+  }
+  .players-panel.left, .players-panel.right { display: none; }
+  .players-panel-mobile {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 8px;
+    padding: 10px 12px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.25);
+    flex-shrink: 0;
+  }
+  .players-panel-mobile::-webkit-scrollbar { display: none; }
+  .players-panel-mobile .player-card { min-width: 140px; flex-shrink: 0; }
+
+  /* Lobby : colonne unique */
+  .lobby-body { grid-template-columns: 1fr; }
+  .lobby-chat { height: 220px; }
+  .lobby-container { max-width: 600px; }
+
+  /* Subscreen */
+  .subscreen-container { max-width: 100%; }
+}
+
+/* ── Mobile (≤ 640px) ────────────────────────────────── */
+@media (max-width: 640px) {
+  /* ── Globals ──────────────────────────────── */
+  html { font-size: 15px; }
+
+  /* Empêche le zoom automatique iOS sur focus input (font-size < 16px) */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+
+  /* ── Menu / Logo ──────────────────────────── */
+  #screen-menu { padding: 16px 12px; justify-content: flex-start; padding-top: 40px; }
+  .menu-container { gap: 16px; }
+  .logo { padding: 10px 0 6px; }
+  .logo h1 { font-size: clamp(1.8rem, 8vw, 2.4rem); }
+  .bomb-icon { font-size: clamp(2.4rem, 10vw, 3.2rem); }
+  .subtitle { font-size: 0.85rem; }
+
+  .menu-card { padding: 16px 14px; border-radius: var(--radius); }
+  .profile-section { gap: 10px; }
+  .profile-avatar-picker { width: 48px; height: 48px; font-size: 1.8rem; }
+  .profile-name-input { font-size: 1rem; padding: 10px 12px; }
+  .avatar-grid { grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  .avatar-option { font-size: 1.3rem; }
+  .menu-separator { margin: 12px 0; }
+  .btn-menu-action { padding: 12px 14px; gap: 12px; }
+  .btn-menu-action .btn-icon { font-size: 1.3rem; width: 28px; }
+  .btn-menu-action strong { font-size: 0.92rem; }
+  .btn-menu-action small { font-size: 0.7rem; }
+
+  /* ── Subscreens ──────────────────────────── */
+  .subscreen-container { padding: 12px 10px 24px; gap: 12px; }
+  .subscreen-header { padding: 2px 0; }
+  .subscreen-header h2 { font-size: 1.1rem; }
+  .setup-card { padding: 16px 14px; gap: 18px; border-radius: var(--radius); }
+  .settings-grid { grid-template-columns: 1fr; }
+
+  /* ── Code d'invitation ───────────────────── */
+  .code-input {
+    font-size: 1.7rem;
+    letter-spacing: 3px;
+    padding: 14px 16px;
+    max-width: 100%;
+  }
+
+  /* ── Parties publiques ───────────────────── */
+  .room-row { padding: 12px; gap: 10px; flex-wrap: wrap; }
+  .room-row-info { flex: 1 1 100%; } /* info sur toute la largeur */
+  .room-row-players { font-size: 1.1rem; }
+  .room-row-join .btn { width: 100%; }
+
+  /* ── Lobby ───────────────────────────────── */
+  .room-code-display { padding: 14px; }
+  .room-code-value { font-size: clamp(1.5rem, 7vw, 2rem); letter-spacing: 2px; }
+  .lobby-chat { height: 180px; }
+  .lobby-player-row { padding: 8px 10px; }
+  .lobby-player-avatar { font-size: 1.2rem; }
+
+  /* ── Jeu : header ────────────────────────── */
+  .game-header { padding: 7px 10px; gap: 6px; min-height: 48px; }
+  .logo-small { display: none; }
+  .room-badge { display: none; }
+  .syllable-label { display: none; }
+  .syllable { font-size: clamp(1.2rem, 5vw, 1.6rem); letter-spacing: 2px; }
+  .header-right { gap: 4px; }
+  .header-right .btn { padding: 7px 10px; font-size: 0.82rem; min-height: 38px; }
+
+  /* ── Jeu : bombe ─────────────────────────── */
+  .bomb-area { padding: 8px 16px; gap: 12px; }
+  .bomb { width: 96px; height: 96px; }
+  .bomb-body { width: 72px; height: 72px; }
+  .bomb-fuse { height: 22px; top: -18px; }
+  .fuse-fire { font-size: 1rem; top: -20px; }
+  .bomb-timer { font-size: 1.5rem; }
+  .explosion { font-size: 4rem; }
+
+  /* ── Jeu : saisie ────────────────────────── */
+  .input-area {
+    max-width: 100%;
+    width: 100%;
+    padding: 0 10px;
+    gap: 6px;
+  }
+  .active-player-name { font-size: 0.82rem; letter-spacing: 0.5px; }
+  .my-turn-badge { font-size: 0.75rem; padding: 3px 10px; }
+  .word-input { font-size: 1.1rem; padding: 14px 12px; }
+  .btn-validate {
+    min-width: 56px;
+    font-size: 1.3rem;
+    padding: 14px 14px;
+  }
+  .feedback-msg { font-size: 0.82rem; min-height: 18px; }
+
+  /* ── Jeu : panel mobile ──────────────────── */
+  .players-panel-mobile { padding: 8px 10px; gap: 7px; }
+  .players-panel-mobile .player-card { min-width: 120px; padding: 9px; }
+  .player-card-avatar { font-size: 1.1rem; }
+  .player-card-name { font-size: 0.78rem; }
+  .heart { font-size: 0.85rem; }
+  .alphabet-track { height: 12px; margin-top: 5px; }
+  .alphabet-track-label { font-size: 0.58rem; }
+  .active-badge { font-size: 0.55rem; padding: 1px 6px; }
+
+  /* ── Chat overlay : full-width en bas ────── */
+  .chat-overlay {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 55vh;
+    border-radius: var(--radius) var(--radius) 0 0;
+    border-bottom: none;
+  }
+
+  /* ── Fin de partie ───────────────────────── */
+  #screen-end { padding: 12px; }
+  .end-card { padding: 22px 16px; border-radius: var(--radius); }
+  .end-trophy { font-size: 2.8rem; }
+  .end-title { font-size: clamp(1.3rem, 5vw, 1.8rem); margin-bottom: 14px; }
+  .winner-display { padding: 14px; margin-bottom: 16px; }
+  .winner-emoji { font-size: 2rem; }
+  .winner-name { font-size: clamp(1.2rem, 5vw, 1.7rem); }
+  .winner-subtitle { font-size: 0.85rem; }
+  .score-row { padding: 8px 10px; gap: 8px; }
+  .score-rank { font-size: 1rem; width: 24px; }
+  .score-avatar { font-size: 1.1rem; }
+  .score-name { font-size: 0.9rem; }
+  .end-actions { flex-direction: column; gap: 8px; }
+  .end-actions .btn { width: 100%; justify-content: center; }
+  .scoreboard { margin-bottom: 18px; }
+}
+
+/* ── Petit mobile (≤ 420px) ──────────────────────────── */
+@media (max-width: 420px) {
+  html { font-size: 14px; }
+
+  .logo h1 { font-size: 1.8rem; }
+  .bomb-icon { font-size: 2.4rem; }
+  .avatar-grid { grid-template-columns: repeat(5, 1fr); gap: 5px; }
+
+  .bomb { width: 82px; height: 82px; }
+  .bomb-body { width: 62px; height: 62px; }
+  .bomb-timer { font-size: 1.3rem; }
+
+  .players-panel-mobile .player-card { min-width: 106px; }
+
+  .room-code-value { font-size: 1.4rem; }
+  .code-input { font-size: 1.4rem; letter-spacing: 2px; }
+
+  .word-input { padding: 13px 10px; }
+  .btn-validate { min-width: 50px; font-size: 1.2rem; padding: 13px 12px; }
+}
+
+/* ── Paysage mobile (hauteur réduite) ────────────────── */
+@media (max-height: 500px) and (orientation: landscape) {
+  .game-header { padding: 5px 12px; min-height: 40px; }
+  .syllable { font-size: 1.1rem; }
+  .bomb { width: 72px; height: 72px; }
+  .bomb-body { width: 54px; height: 54px; }
+  .bomb-timer { font-size: 1.2rem; }
+  .bomb-area { padding: 6px; gap: 8px; }
+  .word-input { padding: 10px 12px; }
+  .players-panel-mobile { padding: 6px 10px; }
+  .players-panel-mobile .player-card { min-width: 100px; padding: 6px 8px; }
+  .my-turn-badge { display: none; }
+  .active-player-name { font-size: 0.78rem; }
+}
+
+/* ── iPhone SE / très petits écrans (≤ 375px) ────────── */
+@media (max-width: 375px) {
+  .menu-card { padding: 14px 12px; }
+  .profile-avatar-picker { width: 42px; height: 42px; font-size: 1.6rem; }
+  .btn-menu-action .btn-icon { display: none; }
+  .room-code-value { font-size: 1.3rem; letter-spacing: 1px; }
+  .players-panel-mobile .player-card { min-width: 94px; }
+}
+
+/* ── Support safe-area (notch iPhone X+) ────────────── */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .game-layout {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .players-panel-mobile {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+  .chat-overlay {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
