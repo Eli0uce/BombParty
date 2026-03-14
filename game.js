@@ -244,7 +244,14 @@ function init() {
   btnValidate.addEventListener('click', handleWordSubmit);
   wordInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleWordSubmit(); });
   btnQuit.addEventListener('click', handleQuitGame);
-  btnGameChatToggle.addEventListener('click', () => gameChatOverlay.classList.toggle('hidden'));
+  btnGameChatToggle.addEventListener('click', () => {
+    const wasHidden = gameChatOverlay.classList.contains('hidden');
+    gameChatOverlay.classList.toggle('hidden');
+    if (wasHidden) {
+      // Le conteneur était masqué (display:none) → scrollHeight = 0 → scroll au bas maintenant qu'il est visible
+      requestAnimationFrame(() => { gameChatMessages.scrollTop = gameChatMessages.scrollHeight; });
+    }
+  });
   btnGameChatClose.addEventListener('click',  () => gameChatOverlay.classList.add('hidden'));
   btnGameSendChat.addEventListener('click', sendGameChat);
   gameChatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendGameChat(); });
@@ -388,45 +395,42 @@ function setupLobby(code, meta) {
 }
 
 function startLobbyListeners(code) {
-  // Joueurs
-  const unsubPlayers = watchPlayers(code, players => {
-    renderLobbyPlayers(players, code);
-  });
+  // Stopper d'éventuels anciens listeners (ex : après Rejouer)
+  stopAllListeners();
+  session.unsubscribers.forEach(fn => { try { fn(); } catch (_) {} });
+  session.unsubscribers = [];
 
-  // Chat
-  const unsubChat = watchChat(code, msgs => renderChat(lobbyChatMessages, msgs));
+  const unsubPlayers = watchPlayers(code, players => renderLobbyPlayers(players, code));
+  const unsubChat    = watchChat(code, msgs => renderChat(lobbyChatMessages, msgs));
 
-  // État de la room (lancement de partie)
   const unsubRoom = watchRoom(code, room => {
     if (!room) {
-      // Room supprimée (hôte parti)
       alert('La room a été fermée par l\'hôte.');
       cleanupSession();
       showScreen('menu');
       return;
     }
+
     if (room.meta?.status === 'playing' && state.phase !== 'playing') {
-      // Lancement de la partie — tout le monde charge
       const players = Object.values(room.players || {}).map(p => ({
-        id: p.id,
-        name: p.name,
-        avatar: p.avatar,
-        lives: room.meta.maxLives,
-        alive: true,
+        id: p.id, name: p.name, avatar: p.avatar,
+        lives: room.meta.maxLives, alive: true,
       }));
       state.players       = players;
       state.maxLives      = room.meta.maxLives;
       state.usedWords     = new Set();
       state.playerLetters = {};
       state.phase         = 'playing';
-      // totalTime est tiré aléatoirement par hostNextTurn à chaque tour
 
-      session.unsubscribers.push(unsubPlayers, unsubChat, unsubRoom);
+      // Stopper les listeners du lobby AVANT de lancer le jeu
+      // (évite que le lobby-chat continue de re-rendre pendant la partie)
+      unsubPlayers();
+      unsubChat();
+      // unsubRoom ne peut pas se stopper depuis son propre handler —
+      // cleanupSession s'en chargera plus tard.
+      session.unsubscribers = [];
 
       startOnlineGame(code);
-    }
-    if (room.meta?.status === 'gameover') {
-      // déjà géré dans startOnlineGame
     }
   });
 
@@ -482,14 +486,20 @@ async function handleLobbyLeave() {
 function sendLobbyChat() {
   const text = lobbyChatInput.value.trim();
   if (!text || !session.roomCode) return;
-  sendChatMessage(session.roomCode, me.name, me.avatar, text);
   lobbyChatInput.value = '';
+  sendChatMessage(session.roomCode, me.name, me.avatar, text).catch(() => {
+    lobbyChatInput.value = text; // restaure si l'envoi échoue
+    lobbyChatInput.focus();
+  });
 }
 function sendGameChat() {
   const text = gameChatInput.value.trim();
   if (!text || !session.roomCode) return;
-  sendChatMessage(session.roomCode, me.name, me.avatar, text);
   gameChatInput.value = '';
+  sendChatMessage(session.roomCode, me.name, me.avatar, text).catch(() => {
+    gameChatInput.value = text; // restaure si l'envoi échoue
+    gameChatInput.focus();
+  });
 }
 
 function renderChat(container, msgs) {
@@ -500,7 +510,9 @@ function renderChat(container, msgs) {
     div.innerHTML = `<span class="chat-message-author">${escapeHtml(msg.avatar)} ${escapeHtml(msg.author)}</span><span class="chat-message-text">${escapeHtml(msg.text)}</span>`;
     container.appendChild(div);
   });
-  container.scrollTop = container.scrollHeight;
+  // requestAnimationFrame garantit que le layout est recalculé avant le scroll
+  // (important quand le conteneur était masqué display:none au moment du rendu)
+  requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
 }
 
 function addChatSystem(container, text) {
@@ -529,6 +541,8 @@ function startOnlineGame(code) {
     // L'hôte orchestre le jeu
     hostNextTurn();
 
+    // L'hôte écoute aussi le chat (il pouvait envoyer mais pas recevoir avant)
+    const unsubChatGame = watchChat(code, msgs => renderChat(gameChatMessages, msgs));
     // Écoute les mots soumis par les clients
     const unsubWord = watchPendingWord(code, pending => {
       if (!pending) return;
@@ -538,15 +552,12 @@ function startOnlineGame(code) {
       clearPendingWord(code);
       processWord(pending.word);
     });
-    session.unsubscribers.push(unsubWord);
+    session.unsubscribers.push(unsubWord, unsubChatGame);
   } else {
-    // Les clients observent l'état du jeu
-    const unsubGS = watchGameState(code, gs => {
-      if (!gs) return;
-      applyRemoteGameState(gs);
-    });
-    const unsubChat2 = watchChat(code, msgs => renderChat(gameChatMessages, msgs));
-    session.unsubscribers.push(unsubGS, unsubChat2);
+    // Les clients observent l'état du jeu et le chat
+    const unsubGS       = watchGameState(code, gs => { if (!gs) return; applyRemoteGameState(gs); });
+    const unsubChatGame = watchChat(code, msgs => renderChat(gameChatMessages, msgs));
+    session.unsubscribers.push(unsubGS, unsubChatGame);
   }
 }
 
@@ -1143,9 +1154,13 @@ async function handlePlayAgain() {
       showScreen('lobby');
       startLobbyListeners(session.roomCode);
     } else {
-      // Non-hôte : retour au lobby et attend
+      // Non-hôte : retour au lobby, relancer les listeners (chat inclus)
       state.phase = 'setup';
+      stopAllListeners();
+      session.unsubscribers.forEach(fn => { try { fn(); } catch (_) {} });
+      session.unsubscribers = [];
       showScreen('lobby');
+      startLobbyListeners(session.roomCode);
     }
   } else {
     // Local : relancer directement
