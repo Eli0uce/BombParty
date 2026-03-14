@@ -64,18 +64,26 @@ async function createRoom(hostPlayer, settings) {
   };
   await ref(`rooms/${code}`).set(roomData);
 
-  // ── Index des rooms publiques (nœud séparé, lecture autorisée sans règle spéciale) ──
+  // ── Index des rooms publiques ────────────────────────────────────────────
   if (settings.isPublic) {
-    await ref(`publicRooms/${code}`).set({
-      hostName: hostPlayer.name,
-      maxLives: settings.maxLives,
-      createdAt: firebase.database.ServerValue.TIMESTAMP,
-    });
-    // Supprimer l'entrée si l'hôte se déconnecte
-    ref(`publicRooms/${code}`).onDisconnect().remove();
+    try {
+      await ref(`publicRooms/${code}`).set({
+        hostName: hostPlayer.name,
+        maxLives: settings.maxLives,
+        createdAt: firebase.database.ServerValue.TIMESTAMP,
+      });
+      console.log('[BombParty] publicRooms entry written for', code);
+      // ⚠️ PAS de onDisconnect().remove() ici — Firebase peut le déclencher
+      //    lors d'un reconnect initial, supprimant l'entrée immédiatement.
+      //    La suppression se fait via updateRoomStatus() et cleanOldRooms().
+    } catch (e) {
+      // L'index public a échoué (règles Firebase ?) mais la room est créée
+      console.warn('[BombParty] publicRooms write failed:', e.message,
+        '→ vérifiez les règles Firebase (publicRooms doit avoir .write: true)');
+    }
   }
 
-  // Présence : supprimer le joueur si déconnecté
+  // Présence : marquer hors-ligne si déconnecté
   ref(`rooms/${code}/players/${hostPlayer.id}/online`).onDisconnect().set(false);
 
   return code;
@@ -122,9 +130,15 @@ async function leaveRoom(code, playerId, isHost) {
 }
 
 async function listPublicRooms() {
-  // Lecture de l'index publicRooms (nœud dédié, pas besoin de lister rooms/)
+  console.log('[BombParty] listPublicRooms: lecture de publicRooms...');
   const indexSnap = await ref('publicRooms').get();
-  if (!indexSnap.exists()) return [];
+
+  if (!indexSnap.exists()) {
+    console.log('[BombParty] publicRooms vide ou introuvable');
+    return [];
+  }
+
+  console.log('[BombParty] publicRooms entries:', Object.keys(indexSnap.val()));
 
   const rooms = [];
   const checks = [];
@@ -133,10 +147,13 @@ async function listPublicRooms() {
     const idx = child.val();
     checks.push(
       ref(`rooms/${child.key}/meta`).get().then(metaSnap => {
-        if (!metaSnap.exists()) return;
+        if (!metaSnap.exists()) {
+          console.log('[BombParty] room', child.key, '→ meta introuvable');
+          return;
+        }
         const meta = metaSnap.val();
+        console.log('[BombParty] room', child.key, '→ status:', meta.status);
         if (meta.status !== 'lobby') return;
-        // Compter les joueurs
         return ref(`rooms/${child.key}/players`).get().then(pSnap => {
           rooms.push({
             code:        child.key,
@@ -146,11 +163,12 @@ async function listPublicRooms() {
             createdAt:   meta.createdAt || idx.createdAt || 0,
           });
         });
-      }).catch(() => {})
+      }).catch(e => console.warn('[BombParty] room check error', child.key, e.message))
     );
   });
 
   await Promise.all(checks);
+  console.log('[BombParty] rooms found:', rooms.length);
   return rooms.sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
 }
 
