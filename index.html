@@ -132,6 +132,13 @@
           </button>
         </div>
 
+        <!-- Profil (connectés uniquement) -->
+        <button id="btn-my-profile" class="btn-menu-card btn-menu-card--profile hidden">
+          <span class="menu-card-icon">👤</span>
+          <strong>Mon profil</strong>
+          <small>Stats, achievements, compte</small>
+        </button>
+
       </div><!-- /menu-actions -->
 
       <div id="firebase-warning" class="firebase-warning hidden">
@@ -550,6 +557,231 @@
     </div>
   </div>
 </section>
+
+<!-- ══════════════════════════════════════════════════════
+     ÉCRAN 9 — PROFIL
+══════════════════════════════════════════════════════ -->
+<section id="screen-profile" class="screen">
+  <div class="profile-screen-wrap">
+
+    <!-- Header -->
+    <div class="subscreen-header profile-screen-header">
+      <button class="btn btn-ghost btn-sm btn-back" data-target="menu">← Retour</button>
+      <h2>👤 Mon profil</h2>
+      <button id="btn-edit-profile" class="btn btn-secondary btn-sm">✏️ Modifier</button>
+    </div>
+
+    <!-- ── Carte héros ── -->
+    <div class="prof-hero-card">
+      <div class="prof-hero-avatar-wrap">
+        <div id="prof-photo" class="prof-photo"></div>
+        <div id="prof-emoji-badge" class="prof-emoji-badge">🎮</div>
+      </div>
+      <div class="prof-hero-info">
+        <div class="prof-hero-name-row">
+          <h1 id="prof-display-name" class="prof-hero-name">Joueur</h1>
+          <span id="prof-rank-badge" class="prof-hero-rank hidden">—</span>
+        </div>
+        <p id="prof-bio" class="prof-hero-bio"></p>
+        <div class="prof-hero-meta">
+          <span id="prof-provider-badge" class="prof-provider-badge"></span>
+          <span id="prof-since" class="prof-since"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Stats principales ── -->
+    <div class="prof-section">
+      <h3 class="prof-section-title">📊 Statistiques</h3>
+      <div class="prof-stat-cards">
+        <div class="prof-stat-card prof-stat-accent">
+          <span class="prof-stat-icon">🏆</span>
+          <span id="prof-wins" class="prof-stat-value">0</span>
+          <span class="prof-stat-label">Victoires</span>
+        </div>
+        <div class="prof-stat-card">
+          <span class="prof-stat-icon">🎮</span>
+          <span id="prof-games" class="prof-stat-value">0</span>
+          <span class="prof-stat-label">Parties</span>
+        </div>
+        <div class="prof-stat-card">
+          <span class="prof-stat-icon">💬</span>
+          <span id="prof-words" class="prof-stat-value">0</span>
+          <span class="prof-stat-label">Mots</span>
+        </div>
+        <div class="prof-stat-card">
+          <span class="prof-stat-icon">📈</span>
+          <span id="prof-winrate" class="prof-stat-value">—</span>
+          <span class="prof-stat-label">Taux V.</span>
+        </div>
+      </div>
+      <!-- Barre winrate -->
+      <div class="prof-winrate-row">
+        <div class="prof-winrate-track">
+          <div id="prof-winrate-fill" class="prof-winrate-fill" style="width:0%"></div>
+        </div>
+        <span id="prof-winrate-label" class="prof-winrate-label">0 V / 0 parties</span>
+      </div>
+    </div>
+
+    <!-- ── Records ── -->
+    <div class="prof-section">
+      <h3 class="prof-section-title">🏅 Records personnels</h3>
+      <div class="prof-records-grid">
+        <div class="prof-record-item">
+          <span class="prof-record-icon">🔥</span>
+          <div>
+            <div class="prof-record-value" id="prof-streak-current">0</div>
+            <div class="prof-record-label">Série actuelle</div>
+          </div>
+        </div>
+        <div class="prof-record-item">
+          <span class="prof-record-icon">⭐</span>
+          <div>
+            <div class="prof-record-value" id="prof-streak-best">0</div>
+            <div class="prof-record-label">Meilleure série</div>
+          </div>
+        </div>
+        <div class="prof-record-item">
+          <span class="prof-record-icon">📝</span>
+          <div>
+            <div class="prof-record-value" id="prof-avg-words">—</div>
+            <div class="prof-record-label">Mots / partie</div>
+          </div>
+        </div>
+        <div class="prof-record-item">
+          <span class="prof-record-icon">🔡</span>
+          <div>
+            <div id="prof-best-word" class="prof-record-value prof-best-word">—</div>
+            <div class="prof-record-label">Mot le + long</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Achievements ── -->
+    <div class="prof-section">
+      <h3 class="prof-section-title">
+        🏅 Achievements
+        <span id="prof-achiev-count" class="prof-achiev-count">0/0</span>
+      </h3>
+      <div id="prof-achievements" class="prof-achievements-grid"></div>
+    </div>
+
+    <!-- ── Historique récent ── -->
+    <div class="prof-section">
+      <h3 class="prof-section-title">📜 Parties récentes</h3>
+      <div id="prof-history-list" class="prof-history-list">
+        <div class="rooms-loading">⏳ Chargement…</div>
+      </div>
+    </div>
+
+    <!-- ── Gestion du compte ── -->
+    <div class="prof-section prof-account-section">
+      <h3 class="prof-section-title">⚙️ Gestion du compte</h3>
+      <div class="prof-account-actions">
+        <button id="btn-prof-edit" class="btn btn-secondary prof-account-btn">
+          <span>✏️</span>
+          <div>
+            <strong>Modifier le profil</strong>
+            <small>Pseudo, avatar, bio</small>
+          </div>
+          <span class="prof-account-arrow">›</span>
+        </button>
+        <button id="btn-prof-signout" class="btn btn-ghost prof-account-btn">
+          <span>🚪</span>
+          <div>
+            <strong>Se déconnecter</strong>
+            <small>Revenir en mode invité</small>
+          </div>
+          <span class="prof-account-arrow">›</span>
+        </button>
+        <button id="btn-prof-delete" class="btn btn-ghost prof-account-btn prof-danger-btn">
+          <span>🗑️</span>
+          <div>
+            <strong>Supprimer le compte</strong>
+            <small>Action irréversible</small>
+          </div>
+          <span class="prof-account-arrow">›</span>
+        </button>
+      </div>
+    </div>
+
+  </div><!-- /profile-screen-wrap -->
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+     MODALE — Édition du profil
+══════════════════════════════════════════════════════ -->
+<div id="modal-edit-profile" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>✏️ Modifier le profil</h3>
+      <button id="btn-modal-close" class="btn btn-ghost btn-sm">✕</button>
+    </div>
+
+    <!-- Aperçu avatar -->
+    <div class="modal-avatar-preview">
+      <div id="modal-avatar-preview-photo" class="modal-avatar-photo"></div>
+      <div id="modal-avatar-preview-emoji" class="modal-avatar-emoji">🎮</div>
+    </div>
+
+    <!-- Grille de sélection d'emoji -->
+    <div class="modal-field">
+      <label class="field-label">Avatar emoji</label>
+      <div id="modal-avatar-grid" class="avatar-grid modal-avatar-grid"></div>
+    </div>
+
+    <!-- Pseudo -->
+    <div class="modal-field">
+      <label class="field-label" for="modal-name-input">Pseudo</label>
+      <input type="text" id="modal-name-input" class="profile-name-input"
+             placeholder="Votre pseudo" maxlength="18" />
+    </div>
+
+    <!-- Bio -->
+    <div class="modal-field">
+      <label class="field-label" for="modal-bio-input">Bio <small style="text-transform:none;letter-spacing:0;color:var(--text-muted)">(80 caractères max)</small></label>
+      <textarea id="modal-bio-input" class="modal-bio-textarea"
+                placeholder="Dites quelque chose sur vous…" maxlength="80" rows="2"></textarea>
+    </div>
+
+    <div id="modal-edit-error" class="error-banner hidden"></div>
+
+    <div class="modal-actions">
+      <button id="btn-modal-cancel" class="btn btn-ghost">Annuler</button>
+      <button id="btn-modal-save" class="btn btn-primary">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     MODALE — Confirmation suppression
+══════════════════════════════════════════════════════ -->
+<div id="modal-confirm-delete" class="modal-overlay hidden">
+  <div class="modal-box modal-box--danger">
+    <div class="modal-header">
+      <h3>🗑️ Supprimer le compte</h3>
+    </div>
+    <div class="modal-danger-body">
+      <p>Cette action est <strong>irréversible</strong>. Toutes vos données seront supprimées :</p>
+      <ul>
+        <li>🏆 Vos victoires et statistiques</li>
+        <li>📜 Votre historique de parties</li>
+        <li>🏅 Vos achievements</li>
+        <li>🌍 Votre entrée dans le classement</li>
+      </ul>
+      <p>Tapez <strong>SUPPRIMER</strong> pour confirmer.</p>
+      <input type="text" id="modal-delete-confirm-input" class="modal-delete-input"
+             placeholder="SUPPRIMER" autocomplete="off" />
+    </div>
+    <div id="modal-delete-error" class="error-banner hidden"></div>
+    <div class="modal-actions">
+      <button id="btn-delete-cancel" class="btn btn-ghost">Annuler</button>
+      <button id="btn-delete-confirm" class="btn btn-danger" disabled>🗑️ Supprimer définitivement</button>
+    </div>
+  </div>
+</div>
 
 <!-- Loading overlay -->
 <div id="loading-overlay" class="loading-overlay hidden">

@@ -227,7 +227,7 @@ async function _loadOrCreateProfile(firebaseUser) {
 // ════════════════════════════════════════════════════════
 //  SAUVEGARDE D'UNE PARTIE
 // ════════════════════════════════════════════════════════
-async function authSaveGameResult({ won, position, wordsFound, playerCount }) {
+async function authSaveGameResult({ won, position, wordsFound, playerCount, bestWord, bestWordLength, alphabetBonus }) {
   const user = _currentUser;
   if (!user) return;
 
@@ -242,6 +242,17 @@ async function authSaveGameResult({ won, position, wordsFound, playerCount }) {
 
   stats.gamesPlayed = (stats.gamesPlayed || 0) + 1;
   stats.wordsFound  = (stats.wordsFound  || 0) + (wordsFound || 0);
+
+  // Meilleur mot
+  if (bestWordLength && bestWordLength > (stats.bestWordLength || 0)) {
+    stats.bestWordLength = bestWordLength;
+    stats.bestWord       = bestWord || '';
+  }
+
+  // Bonus A→Z
+  if (alphabetBonus) {
+    stats.alphabetBonuses = (stats.alphabetBonuses || 0) + 1;
+  }
 
   if (won) {
     stats.gamesWon      = (stats.gamesWon      || 0) + 1;
@@ -299,8 +310,53 @@ async function authLoadLeaderboard(limit = 20) {
 }
 
 // ════════════════════════════════════════════════════════
-//  HISTORIQUE (avec pagination)
+//  MISE À JOUR DU PROFIL
 // ════════════════════════════════════════════════════════
+async function authUpdateProfile({ displayName, bio, avatar }) {
+  const user = _currentUser;
+  if (!user) throw new Error('Non connecté.');
+
+  const upd = {};
+  if (displayName !== undefined) upd.displayName = String(displayName).trim().slice(0, 18) || user.displayName;
+  if (bio         !== undefined) upd.bio         = String(bio).trim().slice(0, 80);
+  if (avatar      !== undefined) upd.avatar      = avatar;
+
+  await firebase.database().ref(`userProfiles/${user.uid}`).update(upd);
+
+  // Mettre à jour le leaderboard public si le pseudo ou l'avatar change
+  if (upd.displayName || upd.avatar) {
+    const lbUpd = {};
+    if (upd.displayName) lbUpd.displayName = upd.displayName;
+    if (upd.avatar)      lbUpd.avatar      = upd.avatar;
+    await firebase.database().ref(`leaderboard/${user.uid}`).update(lbUpd).catch(() => {});
+  }
+
+  _currentUser = { ..._currentUser, ...upd };
+  _authCbs.forEach(cb => { try { cb(_currentUser); } catch (_) {} });
+}
+
+// ════════════════════════════════════════════════════════
+//  SUPPRESSION DU COMPTE
+// ════════════════════════════════════════════════════════
+async function authDeleteAccount() {
+  const user = _currentUser;
+  if (!user) throw new Error('Non connecté.');
+
+  const uid = user.uid;
+
+  // Supprimer les données Firebase
+  await Promise.all([
+    firebase.database().ref(`userProfiles/${uid}`).remove(),
+    firebase.database().ref(`leaderboard/${uid}`).remove(),
+  ]);
+
+  // Supprimer le compte Firebase Auth
+  const fbUser = firebase.auth().currentUser;
+  if (fbUser) await fbUser.delete();
+
+  _currentUser = null;
+  _authCbs.forEach(cb => { try { cb(null); } catch (_) {} });
+}
 async function authLoadHistory(limit = 20, beforeDate = null) {
   const user = _currentUser;
   if (!user) return [];

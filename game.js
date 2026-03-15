@@ -10,6 +10,27 @@ const AVATARS    = ['🐱','🐶','🦊','🐻','🐼','🦁','🐯','🐸','�
 const RANK_EMOJIS = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣'];
 const ALPHABET   = 'abcdefghijklmnopqrstuvwxyz';
 
+// ─── ACHIEVEMENTS ─────────────────────────────────────────
+const ACHIEVEMENTS = [
+  { id:'first_game',     icon:'🎮', label:'Première partie',    desc:'Jouer sa première partie',         check: s => (s.gamesPlayed||0) >= 1 },
+  { id:'first_win',      icon:'🏆', label:'Premier sang',       desc:'Remporter une première victoire',   check: s => (s.gamesWon||0) >= 1 },
+  { id:'games_10',       icon:'🎲', label:'Habitué',            desc:'10 parties jouées',                 check: s => (s.gamesPlayed||0) >= 10 },
+  { id:'games_50',       icon:'🎰', label:'Vétéran',            desc:'50 parties jouées',                 check: s => (s.gamesPlayed||0) >= 50 },
+  { id:'games_100',      icon:'💎', label:'Centurion',          desc:'100 parties jouées',                check: s => (s.gamesPlayed||0) >= 100 },
+  { id:'streak_3',       icon:'🔥', label:'En feu',             desc:'3 victoires d\'affilée',            check: s => (s.bestStreak||0) >= 3 },
+  { id:'streak_5',       icon:'💫', label:'Invincible',         desc:'5 victoires d\'affilée',            check: s => (s.bestStreak||0) >= 5 },
+  { id:'streak_10',      icon:'👑', label:'Légende',            desc:'10 victoires d\'affilée',           check: s => (s.bestStreak||0) >= 10 },
+  { id:'words_50',       icon:'📝', label:'Causant',            desc:'50 mots trouvés',                   check: s => (s.wordsFound||0) >= 50 },
+  { id:'words_200',      icon:'📚', label:'Lexique',            desc:'200 mots trouvés',                  check: s => (s.wordsFound||0) >= 200 },
+  { id:'words_1000',     icon:'📖', label:'Encyclopédie',       desc:'1000 mots trouvés',                 check: s => (s.wordsFound||0) >= 1000 },
+  { id:'alphabet',       icon:'🔤', label:'A → Z',              desc:'Obtenir le bonus A→Z',              check: s => (s.alphabetBonuses||0) >= 1 },
+  { id:'alphabet_5',     icon:'🌈', label:'Maître alphabet',    desc:'5 bonus A→Z obtenus',               check: s => (s.alphabetBonuses||0) >= 5 },
+  { id:'long_word',      icon:'🎯', label:'Grand mot',          desc:'Trouver un mot de 8+ lettres',      check: s => (s.bestWordLength||0) >= 8 },
+  { id:'very_long_word', icon:'🌟', label:'Poète',              desc:'Trouver un mot de 12+ lettres',     check: s => (s.bestWordLength||0) >= 12 },
+  { id:'winrate_50',     icon:'⚖️', label:'Équilibré',          desc:'50%+ de taux de victoire (≥5 p.)',  check: s => (s.gamesPlayed||0) >= 5 && (s.gamesWon||0)/(s.gamesPlayed||1) >= 0.5 },
+  { id:'winrate_75',     icon:'🎯', label:'Dominant',           desc:'75%+ de taux de victoire (≥5 p.)',  check: s => (s.gamesPlayed||0) >= 5 && (s.gamesWon||0)/(s.gamesPlayed||1) >= 0.75 },
+];
+
 function pickRandomTime() {
   return Math.floor(Math.random() * (TIMER_MAX - TIMER_MIN + 1)) + TIMER_MIN;
 }
@@ -42,13 +63,17 @@ let state = {
   timeLeft: 8,
   totalTime: 8,
   phase: 'setup',
+  // Tracking fin de partie
+  bestWord: '',
+  bestWordLength: 0,
+  alphabetBonusCount: 0,
 };
 
 let firebaseOk = false;
 
 // ─── DOM ─────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const screens = ['menu','create','join','public','leaderboard','local','lobby','game','end'];
+const screens = ['menu','create','join','public','leaderboard','local','lobby','game','end','profile'];
 
 // Menu
 const profileAvatarDisplay = $('profile-avatar-display');
@@ -269,6 +294,31 @@ function init() {
   btnPlayAgain.addEventListener('click', handlePlayAgain);
   btnBackMenu.addEventListener('click',  () => { cleanupSession(); showScreen('menu'); });
 
+  // ── Profil ────────────────────────────────────────────────
+  // Boutons dans screen-profile
+  $('btn-edit-profile').addEventListener('click',  openEditProfileModal);
+  $('btn-prof-edit').addEventListener('click',     openEditProfileModal);
+  $('btn-prof-signout').addEventListener('click',  async () => {
+    if (typeof authSignOut !== 'undefined') await authSignOut();
+    showScreen('menu');
+  });
+  $('btn-prof-delete').addEventListener('click',   openDeleteModal);
+  // Modale édition
+  $('btn-modal-close').addEventListener('click',   closeEditProfileModal);
+  $('btn-modal-cancel').addEventListener('click',  closeEditProfileModal);
+  $('btn-modal-save').addEventListener('click',    handleSaveProfile);
+  // Modale suppression
+  $('btn-delete-cancel').addEventListener('click', closeDeleteModal);
+  $('btn-delete-confirm').addEventListener('click',handleDeleteAccount);
+  $('modal-delete-confirm-input').addEventListener('input', e => {
+    $('btn-delete-confirm').disabled = e.target.value !== 'SUPPRIMER';
+  });
+  // Fermer modale en cliquant sur le fond
+  $('modal-edit-profile').addEventListener('click',  e => { if (e.target === $('modal-edit-profile'))  closeEditProfileModal(); });
+  $('modal-confirm-delete').addEventListener('click', e => { if (e.target === $('modal-confirm-delete')) closeDeleteModal(); });
+  // Bâtir la grille avatar de la modale
+  _buildModalAvatarGrid();
+
   // Nettoyage des vieilles rooms
   if (firebaseOk) cleanOldRooms();
 
@@ -283,6 +333,10 @@ function init() {
     showScreen('leaderboard');
     initLbTabs();
     loadLeaderboard();
+  });
+  $('btn-my-profile').addEventListener('click', () => {
+    showScreen('profile');
+    loadProfileScreen();
   });
   $('btn-refresh-leaderboard').addEventListener('click', () => {
     const activeTab = document.querySelector('.lb-tab--active')?.dataset?.tab || 'ranking';
@@ -464,6 +518,9 @@ function startLobbyListeners(code) {
       state.playerLetters = {};
       state.wordsByPlayer = {};
       state.phase         = 'playing';
+      state.bestWord           = '';
+      state.bestWordLength     = 0;
+      state.alphabetBonusCount = 0;
 
       // Stopper les listeners du lobby AVANT de lancer le jeu
       // (évite que le lobby-chat continue de re-rendre pendant la partie)
@@ -599,9 +656,12 @@ function handleAuthStateChange(user) {
       profileNameInput.value = me.name;
       me.id = user.uid;  // l'UID Firebase = identifiant stable pour les stats
     }
+    // Afficher le bouton Mon Profil
+    $('btn-my-profile').classList.remove('hidden');
   } else {
     guestEl.classList.remove('hidden');
     userEl.classList.add('hidden');
+    $('btn-my-profile').classList.add('hidden');
 
     // Restaurer l'ID aléatoire et le nom local
     if (!session.roomCode) {
@@ -1282,6 +1342,14 @@ async function processWord(raw) {
   clearInterval(state.timerInterval);
   wordInput.value = '';
 
+  // ── Tracker le meilleur mot (joueur local ou hôte online) ────────────
+  if (session.mode === 'local' || cp.id === me.id) {
+    if (word.length > (state.bestWordLength || 0)) {
+      state.bestWordLength = word.length;
+      state.bestWord       = word;
+    }
+  }
+
   // ── Compteur de mots par joueur (pour les stats) ──────
   state.wordsByPlayer[cp.id] = (state.wordsByPlayer[cp.id] || 0) + 1;
 
@@ -1295,6 +1363,10 @@ async function processWord(raw) {
   // ── Bonus A→Z : toutes les 26 lettres → +1 vie ───────
   if (letCount >= 26) {
     state.playerLetters[cp.id] = new Set(); // réinitialise le cycle
+    // Tracker le bonus A→Z si c'est notre joueur (local/hôte)
+    if (session.mode === 'local' || cp.id === me.id) {
+      state.alphabetBonusCount = (state.alphabetBonusCount || 0) + 1;
+    }
     if (cp.lives < state.maxLives) {
       cp.lives = Math.min(cp.lives + 1, state.maxLives);
       showSuccess(`✅ "${raw}" 🎉 A→Z complet ! +1 vie pour ${cp.name} !`);
@@ -1535,6 +1607,9 @@ function startLocalGame() {
   state.wordsByPlayer      = {};
   state.currentPlayerIndex = -1;
   state.phase              = 'playing';
+  state.bestWord           = '';
+  state.bestWordLength     = 0;
+  state.alphabetBonusCount = 0;
 
   session.mode     = 'local';
   session.isHost   = true;
@@ -1611,6 +1686,9 @@ function endGame() {
         position: position || sorted.length,
         wordsFound:  myWords,
         playerCount: state.players.length,
+        bestWord:        state.bestWord       || '',
+        bestWordLength:  state.bestWordLength  || 0,
+        alphabetBonus:   (state.alphabetBonusCount || 0) > 0,
       }).catch(e => console.warn('[Auth] Erreur stats:', e.message));
     }
   }
@@ -1704,6 +1782,287 @@ function launchConfetti() {
     const size  = 6 + Math.random() * 10;
     piece.style.cssText = `left:${left}%;background:${color};width:${size}px;height:${size}px;animation-duration:${dur}s;animation-delay:${delay}s;border-radius:${Math.random()>.5?'50%':'2px'};`;
     confettiContainer.appendChild(piece);
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  ÉCRAN PROFIL
+// ════════════════════════════════════════════════════════
+
+// ─── Variable état modale ────────────────────────────────
+let _editAvatarSelected = null; // avatar choisi dans la modale
+
+// ─── Chargement de l'écran profil ───────────────────────
+async function loadProfileScreen() {
+  const user = (typeof authGetCurrentUser !== 'undefined') ? authGetCurrentUser() : null;
+  if (!user) { showScreen('menu'); return; }
+
+  const s = user.stats || {};
+
+  // ── Carte héros ───────────────────────────────────────
+  const photoEl = $('prof-photo');
+  photoEl.innerHTML = '';
+  if (user.photoURL) {
+    const img = document.createElement('img');
+    img.src = user.photoURL;
+    img.alt = user.displayName || '';
+    img.onerror = () => { photoEl.textContent = ''; };
+    photoEl.appendChild(img);
+  }
+  $('prof-emoji-badge').textContent = user.avatar || '🎮';
+  $('prof-display-name').textContent = user.displayName || 'Joueur';
+
+  const bio = user.bio || '';
+  const bioEl = $('prof-bio');
+  bioEl.textContent = bio;
+  bioEl.style.display = bio ? '' : 'none';
+
+  const prov = user.provider;
+  $('prof-provider-badge').innerHTML = prov === 'google'
+    ? '<span class="lb-provider-badge lb-provider-google">🔵 Google</span>'
+    : prov === 'discord'
+    ? '<span class="lb-provider-badge lb-provider-discord">🟣 Discord</span>'
+    : '';
+
+  if (user.createdAt) {
+    const d = new Date(user.createdAt);
+    $('prof-since').textContent = 'Membre depuis ' + d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  } else {
+    $('prof-since').textContent = '';
+  }
+
+  // ── Stats ─────────────────────────────────────────────
+  const played  = s.gamesPlayed  || 0;
+  const won     = s.gamesWon     || 0;
+  const words   = s.wordsFound   || 0;
+  const pct     = played ? Math.round((won / played) * 100) : 0;
+  const avgW    = played ? Math.round(words / played) : 0;
+
+  $('prof-wins').textContent    = won;
+  $('prof-games').textContent   = played;
+  $('prof-words').textContent   = words >= 1000 ? (words / 1000).toFixed(1) + 'k' : words;
+  $('prof-winrate').textContent = played ? `${pct}%` : '—';
+  $('prof-winrate-fill').style.width = `${pct}%`;
+  $('prof-winrate-label').textContent = `${won} V / ${played} partie${played > 1 ? 's' : ''}`;
+
+  // ── Records ───────────────────────────────────────────
+  $('prof-streak-current').textContent = s.currentStreak || 0;
+  $('prof-streak-best').textContent    = s.bestStreak    || 0;
+  $('prof-avg-words').textContent      = played ? avgW : '—';
+  const bestWordEl = $('prof-best-word');
+  if (s.bestWord) {
+    bestWordEl.textContent = `"${s.bestWord}" (${s.bestWordLength} lettres)`;
+  } else {
+    bestWordEl.textContent = '—';
+  }
+
+  // ── Rang classement ───────────────────────────────────
+  const rankBadge = $('prof-rank-badge');
+  if (won > 0 && typeof authLoadLeaderboard !== 'undefined') {
+    authLoadLeaderboard(100).then(entries => {
+      const idx = entries.findIndex(e => e.uid === user.uid);
+      if (idx >= 0) {
+        rankBadge.textContent = `#${idx + 1} mondial`;
+        rankBadge.classList.remove('hidden');
+      }
+    }).catch(() => {});
+  } else {
+    rankBadge.classList.add('hidden');
+  }
+
+  // ── Achievements ──────────────────────────────────────
+  const grid = $('prof-achievements');
+  grid.innerHTML = '';
+  let unlocked = 0;
+  ACHIEVEMENTS.forEach(ach => {
+    const done = ach.check(s);
+    if (done) unlocked++;
+    const el = document.createElement('div');
+    el.className = 'prof-achievement' + (done ? ' unlocked' : ' locked');
+    el.title = ach.desc + (done ? ' ✅' : ' 🔒');
+    el.innerHTML = `
+      <span class="prof-ach-icon">${done ? ach.icon : '🔒'}</span>
+      <span class="prof-ach-label">${ach.label}</span>
+    `;
+    el.addEventListener('click', () => _showAchievTooltip(el, ach, done));
+    grid.appendChild(el);
+  });
+  $('prof-achiev-count').textContent = `${unlocked}/${ACHIEVEMENTS.length}`;
+
+  // ── Historique récent ─────────────────────────────────
+  const histEl = $('prof-history-list');
+  histEl.innerHTML = '<div class="rooms-loading">⏳ Chargement…</div>';
+  try {
+    if (typeof authLoadHistory !== 'undefined') {
+      const entries = await authLoadHistory(5);
+      if (!entries.length) {
+        histEl.innerHTML = '<div class="lb-empty">Aucune partie enregistrée.</div>';
+      } else {
+        histEl.innerHTML = '';
+        entries.forEach(e => {
+          const div = document.createElement('div');
+          div.className = `hist-row ${e.won ? 'hist-row--win' : 'hist-row--loss'}`;
+          const pos = e.position || 0;
+          const posLabel = pos === 1 ? '🥇 1ᵉʳ' : pos === 2 ? '🥈 2ᵉ' : pos === 3 ? '🥉 3ᵉ' : pos > 0 ? `#${pos}` : '—';
+          div.innerHTML = `
+            <div class="hist-result-wrap">
+              <span class="hist-result-icon">${e.won ? '🏆' : '💥'}</span>
+              <span class="hist-result-label ${e.won ? 'hist-label--win' : 'hist-label--loss'}">${e.won ? 'Victoire' : 'Éliminé'}</span>
+            </div>
+            <div class="hist-info">
+              <div class="hist-date-line">${_relativeDate(e.date)}</div>
+              <div class="hist-stats-line">
+                <span class="hist-stat">🎯 ${posLabel}</span>
+                <span class="hist-stat">👥 ${e.playerCount || 2} joueur${(e.playerCount||2) > 1 ? 's':''}</span>
+                <span class="hist-stat">💬 ${e.wordsFound || 0} mot${(e.wordsFound||0) > 1 ? 's':''}</span>
+              </div>
+            </div>`;
+          histEl.appendChild(div);
+        });
+      }
+    }
+  } catch (_) {
+    histEl.innerHTML = '<div class="lb-empty">❌ Erreur de chargement.</div>';
+  }
+}
+
+// ─── Tooltip achievement ─────────────────────────────────
+function _showAchievTooltip(el, ach, done) {
+  document.querySelectorAll('.prof-ach-tooltip').forEach(t => t.remove());
+  const tip = document.createElement('div');
+  tip.className = 'prof-ach-tooltip';
+  tip.innerHTML = `<strong>${ach.icon} ${ach.label}</strong><br>${ach.desc}${done ? '<br><span style="color:var(--neon-green)">✅ Débloqué</span>' : '<br><span style="color:var(--text-muted)">🔒 Verrouillé</span>'}`;
+  el.appendChild(tip);
+  setTimeout(() => tip.remove(), 2800);
+}
+
+// ─── Modale édition du profil ────────────────────────────
+function _buildModalAvatarGrid() {
+  const grid = $('modal-avatar-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  AVATARS.forEach(av => {
+    const el = document.createElement('div');
+    el.className = 'avatar-option';
+    el.textContent = av;
+    el.dataset.av = av;
+    el.addEventListener('click', () => {
+      grid.querySelectorAll('.avatar-option').forEach(o => o.classList.remove('selected'));
+      el.classList.add('selected');
+      _editAvatarSelected = av;
+      $('modal-avatar-preview-emoji').textContent = av;
+    });
+    grid.appendChild(el);
+  });
+}
+
+function openEditProfileModal() {
+  const user = (typeof authGetCurrentUser !== 'undefined') ? authGetCurrentUser() : null;
+  if (!user) return;
+
+  // Pré-remplir les champs
+  $('modal-name-input').value = user.displayName || '';
+  $('modal-bio-input').value  = user.bio || '';
+  _editAvatarSelected = user.avatar || '🎮';
+  $('modal-avatar-preview-emoji').textContent = _editAvatarSelected;
+
+  // Photo
+  const photoEl = $('modal-avatar-preview-photo');
+  photoEl.innerHTML = '';
+  if (user.photoURL) {
+    const img = document.createElement('img');
+    img.src = user.photoURL;
+    img.alt = '';
+    img.onerror = () => { photoEl.innerHTML = ''; };
+    photoEl.appendChild(img);
+  }
+
+  // Sélectionner l'avatar courant
+  $('modal-avatar-grid').querySelectorAll('.avatar-option').forEach(el => {
+    el.classList.toggle('selected', el.dataset.av === _editAvatarSelected);
+  });
+
+  $('modal-edit-error').classList.add('hidden');
+  $('modal-edit-profile').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => $('modal-name-input').focus(), 100);
+}
+
+function closeEditProfileModal() {
+  $('modal-edit-profile').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+async function handleSaveProfile() {
+  const name   = $('modal-name-input').value.trim();
+  const bio    = $('modal-bio-input').value.trim();
+  const avatar = _editAvatarSelected;
+
+  if (!name) {
+    $('modal-edit-error').textContent = 'Le pseudo ne peut pas être vide.';
+    $('modal-edit-error').classList.remove('hidden');
+    return;
+  }
+
+  const btn = $('btn-modal-save');
+  btn.disabled = true;
+  btn.textContent = '⏳ Enregistrement…';
+  $('modal-edit-error').classList.add('hidden');
+
+  try {
+    if (typeof authUpdateProfile !== 'undefined') {
+      await authUpdateProfile({ displayName: name, bio, avatar });
+    }
+    // Mettre à jour les champs du menu principal
+    me.name = name;
+    profileNameInput.value = name;
+    profileAvatarDisplay.textContent = avatar;
+    localStorage.setItem('bp_name',   name);
+    localStorage.setItem('bp_avatar', avatar);
+
+    closeEditProfileModal();
+    // Recharger l'écran profil pour refléter les changements
+    loadProfileScreen();
+  } catch (e) {
+    $('modal-edit-error').textContent = e.message || 'Erreur lors de la mise à jour.';
+    $('modal-edit-error').classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💾 Enregistrer';
+  }
+}
+
+// ─── Modale suppression de compte ────────────────────────
+function openDeleteModal() {
+  $('modal-delete-confirm-input').value = '';
+  $('btn-delete-confirm').disabled = true;
+  $('modal-delete-error').classList.add('hidden');
+  $('modal-confirm-delete').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeDeleteModal() {
+  $('modal-confirm-delete').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+async function handleDeleteAccount() {
+  const btn = $('btn-delete-confirm');
+  btn.disabled = true;
+  btn.textContent = '⏳ Suppression…';
+  $('modal-delete-error').classList.add('hidden');
+  try {
+    if (typeof authDeleteAccount !== 'undefined') {
+      await authDeleteAccount();
+    }
+    closeDeleteModal();
+    cleanupSession();
+    showScreen('menu');
+  } catch (e) {
+    $('modal-delete-error').textContent = e.message || 'Erreur lors de la suppression.';
+    $('modal-delete-error').classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = '🗑️ Supprimer définitivement';
   }
 }
 
