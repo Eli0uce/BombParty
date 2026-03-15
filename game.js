@@ -1676,7 +1676,10 @@ function cleanupSession() {
   session.mode     = 'local';
   session.isPublic = false;
   state.phase = 'setup';
-  gameChatOverlay.classList.add('hidden');
+  if (gameChatPanel) {
+    gameChatPanel.classList.remove('chat-panel-open');
+    gameChatPanel.classList.add('hidden');
+  }
 
   // Restaurer me.id vers l'UID Firebase (si connecté) pour la prochaine partie.
   // Sans ça, un joueur connecté qui avait rejoint avec un ID temporaire garderait
